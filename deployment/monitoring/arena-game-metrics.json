@@ -1,0 +1,288 @@
+{
+  "uid": "arena-game-metrics",
+  "title": "Arena — Game Metrics",
+  "description": "Match throughput, queue depth, timeouts, round resolution, sandbox health",
+  "tags": ["arena", "game"],
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 38,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "mode",
+        "type": "custom",
+        "label": "Match Mode",
+        "options": [
+          { "text": "All", "value": ".*", "selected": true },
+          { "text": "1v1", "value": "1v1" },
+          { "text": "FFA-3", "value": "ffa-3" },
+          { "text": "FFA-4", "value": "ffa-4" }
+        ],
+        "current": { "text": "All", "value": ".*" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "🎮 Match Overview",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Matches / Hour",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } } },
+      "targets": [{ "expr": "sum(increase(arena_matches_total[1h]))", "legendFormat": "matches/h" }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Active Matches",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } } },
+      "targets": [{ "expr": "sum(arena_active_matches)", "legendFormat": "Active" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Queue Depth",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 20 }, { "color": "red", "value": 100 }] }
+        }
+      },
+      "targets": [{ "expr": "sum(arena_queue_size)", "legendFormat": "Queued" }]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Timeout / Forfeit Rate",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.05 }, { "color": "red", "value": 0.15 }] }
+        }
+      },
+      "targets": [{
+        "expr": "sum(rate(arena_agent_timeouts_total{severity=\"forfeit\"}[1h])) / sum(rate(arena_matches_total[1h]))",
+        "legendFormat": "Forfeit rate"
+      }]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Avg Match Duration",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{
+        "expr": "sum(rate(arena_match_duration_seconds_sum[1h])) / sum(rate(arena_match_duration_seconds_count[1h]))",
+        "legendFormat": "Avg duration"
+      }]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Illegal Move Attempts",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 50 }] }
+        }
+      },
+      "targets": [{ "expr": "sum(increase(arena_illegal_moves_total[1h]))", "legendFormat": "Illegal/h" }]
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "📊 Match Throughput & Queue",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Match Completions by Mode",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "targets": [
+        { "expr": "sum(rate(arena_matches_total{mode=\"1v1\"}[5m])) * 3600", "legendFormat": "1v1 /h" },
+        { "expr": "sum(rate(arena_matches_total{mode=\"ffa-3\"}[5m])) * 3600", "legendFormat": "FFA-3 /h" },
+        { "expr": "sum(rate(arena_matches_total{mode=\"ffa-4\"}[5m])) * 3600", "legendFormat": "FFA-4 /h" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Queue Depth by Mode",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 20 }, { "color": "red", "value": 100 }] },
+          "custom": { "lineWidth": 2, "thresholdsStyle": { "mode": "area" } }
+        }
+      },
+      "targets": [
+        { "expr": "sum by (mode) (arena_queue_size)", "legendFormat": "{{ mode }}" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Queue Wait Time — p50 / p95 / p99",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(arena_queue_wait_seconds_bucket[10m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(arena_queue_wait_seconds_bucket[10m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(arena_queue_wait_seconds_bucket[10m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Match Outcomes (1h window)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        { "expr": "sum by (outcome) (increase(arena_matches_total[1h]))", "legendFormat": "{{ outcome }}" }
+      ]
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "⚡ Engine Performance",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Round Resolution Time — p50 / p95 / p99",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.1 }, { "color": "red", "value": 0.5 }] },
+          "custom": { "lineWidth": 2 }
+        }
+      },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(arena_round_resolution_seconds_bucket[5m])) by (le, mode))", "legendFormat": "p50 {{ mode }}" },
+        { "expr": "histogram_quantile(0.95, sum(rate(arena_round_resolution_seconds_bucket[5m])) by (le, mode))", "legendFormat": "p95 {{ mode }}" },
+        { "expr": "histogram_quantile(0.99, sum(rate(arena_round_resolution_seconds_bucket[5m])) by (le, mode))", "legendFormat": "p99 {{ mode }}" }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Agent Timeouts (warnings vs forfeits)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "forfeit" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "warning" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        { "expr": "sum by (severity) (rate(arena_agent_timeouts_total[5m])) * 60", "legendFormat": "{{ severity }}/min" }
+      ]
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "🐳 Sandbox (Tier 1 Containers)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "collapsed": false
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "Active Containers",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 32 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "expr": "arena_sandbox_containers_active", "legendFormat": "Active" }]
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "Container Spawn p95",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 32 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 5 }] }
+        }
+      },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(arena_sandbox_spawn_seconds_bucket[10m])) by (le))",
+        "legendFormat": "p95 spawn"
+      }]
+    },
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "Sandbox Failure Rate",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 32 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.02 }, { "color": "red", "value": 0.05 }] }
+        }
+      },
+      "targets": [{
+        "expr": "sum(rate(arena_sandbox_jobs_total{status=~\"error|killed\"}[15m])) / sum(rate(arena_sandbox_jobs_total[15m]))",
+        "legendFormat": "Failure %"
+      }]
+    },
+    {
+      "id": 34,
+      "type": "timeseries",
+      "title": "Sandbox Job Outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        { "expr": "sum by (status) (rate(arena_sandbox_jobs_total[5m])) * 60", "legendFormat": "{{ status }}/min" }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "timeseries",
+      "title": "Container Spawn Time Distribution",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(arena_sandbox_spawn_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(arena_sandbox_spawn_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(arena_sandbox_spawn_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    }
+  ]
+}

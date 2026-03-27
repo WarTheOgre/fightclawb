@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FIGHT CLAWB — Live Match</title>
+<meta name="description" content="Live Grid Dominance match spectator. Real-time territory warfare.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Permanent+Marker&family=IBM+Plex+Mono:wght@400;700&family=Oswald:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --black: #080808;
+  --dark: #0f0f0f;
+  --concrete: #141414;
+  --blood: #7a0000;
+  --red: #c41e1e;
+  --cream: #e8e3da;
+  --yellow: #c9a84c;
+  --chalk: #d4cfc8;
+  --ghost: rgba(232,227,218,0.04);
+  --border: rgba(232,227,218,0.07);
+  --p1: #c41e1e;
+  --p1-dim: rgba(196,30,30,0.35);
+  --p2: #1e5bc4;
+  --p2-dim: rgba(30,91,196,0.35);
+  --neutral: rgba(232,227,218,0.06);
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--black);
+  color: var(--cream);
+  font-family: 'Oswald', sans-serif;
+  font-weight: 300;
+  overflow-x: hidden;
+  cursor: crosshair;
+  height: 100vh;
+  display: flex; flex-direction: column;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 9999; opacity: 0.3; mix-blend-mode: overlay;
+}
+
+/* ─── NAV ─── */
+nav {
+  padding: 12px 32px;
+  display: flex; justify-content: space-between; align-items: center;
+  background: rgba(8,8,8,0.98);
+  border-bottom: 1px solid rgba(196,30,30,0.25);
+  flex-shrink: 0; z-index: 100;
+}
+.nav-logo { font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 4px; color: var(--cream); text-decoration: none; }
+.nav-logo span { color: var(--red); }
+.nav-center {
+  display: flex; align-items: center; gap: 16px;
+}
+.match-id-tag {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 2px;
+  color: rgba(232,227,218,0.3); background: var(--ghost); padding: 4px 12px;
+  border: 1px solid var(--border);
+}
+.live-indicator {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 3px;
+  color: var(--red); border: 1px solid var(--blood); padding: 3px 10px;
+  animation: flicker 5s infinite;
+}
+@keyframes flicker { 0%,94%,96%,100%{opacity:1} 95%{opacity:0.2} }
+.live-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--red); margin-right: 5px; animation: blink 1.5s infinite; vertical-align: middle; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+.nav-links { display: flex; gap: 24px; list-style: none; }
+.nav-links a { color: rgba(232,227,218,0.4); text-decoration: none; font-size: 11px; letter-spacing: 2px; font-weight: 700; text-transform: uppercase; transition: color 0.1s; }
+.nav-links a:hover { color: var(--cream); }
+
+/* ─── FIGHT CARD ─── */
+.fight-card {
+  background: var(--dark);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 32px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 20px; align-items: center;
+  flex-shrink: 0;
+}
+.fighter {
+  display: flex; align-items: center; gap: 16px;
+}
+.fighter.right { flex-direction: row-reverse; }
+
+.fighter-avatar {
+  width: 52px; height: 52px;
+  border: 2px solid; display: flex; align-items: center; justify-content: center;
+  font-size: 24px; flex-shrink: 0;
+}
+.fighter.left .fighter-avatar { border-color: rgba(196,30,30,0.5); box-shadow: 0 0 16px rgba(196,30,30,0.2); }
+.fighter.right .fighter-avatar { border-color: rgba(30,91,196,0.5); box-shadow: 0 0 16px rgba(30,91,196,0.2); }
+
+.fighter-meta { }
+.fighter-name {
+  font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 2px;
+  color: var(--cream); display: block; line-height: 1;
+}
+.fighter.left .fighter-name { color: #ff5555; }
+.fighter.right .fighter-name { color: #5588ff; }
+.fighter-elo { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: rgba(232,227,218,0.35); letter-spacing: 2px; display: block; margin-top: 3px; }
+.fighter-cells {
+  font-family: 'Bebas Neue', sans-serif; font-size: 36px; color: var(--cream); letter-spacing: -1px;
+}
+.fighter.right .fighter-cells { text-align: right; }
+
+/* Territory bar */
+.vs-center { text-align: center; }
+.vs-label { font-family: 'Bebas Neue', sans-serif; font-size: 14px; letter-spacing: 4px; color: rgba(232,227,218,0.2); margin-bottom: 6px; }
+.territory-bar {
+  height: 6px; background: rgba(255,255,255,0.05);
+  position: relative; overflow: hidden; width: 200px; margin: 0 auto 6px;
+}
+.territory-p1 {
+  position: absolute; left: 0; top: 0; height: 100%;
+  background: var(--p1); transition: width 0.8s ease;
+}
+.territory-p2 {
+  position: absolute; right: 0; top: 0; height: 100%;
+  background: var(--p2); transition: width 0.8s ease;
+}
+.round-badge {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 3px;
+  color: rgba(232,227,218,0.4); display: block; margin-top: 6px;
+}
+.elo-stake { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 2px; color: var(--yellow); margin-top: 2px; display: block; }
+
+/* ─── MAIN ARENA ─── */
+.arena {
+  flex: 1; display: grid;
+  grid-template-columns: 260px 1fr 260px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ─── SIDE PANELS ─── */
+.side-panel {
+  background: var(--concrete);
+  border-right: 1px solid var(--border);
+  overflow-y: auto; scrollbar-width: none;
+  display: flex; flex-direction: column;
+}
+.side-panel.right { border-right: none; border-left: 1px solid var(--border); }
+.side-panel::-webkit-scrollbar { display: none; }
+
+.panel-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 4px;
+  color: rgba(232,227,218,0.25); text-transform: uppercase; margin-bottom: 12px; display: block;
+}
+
+/* AP Bar */
+.ap-bar-wrap { margin-bottom: 4px; }
+.ap-label { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.ap-label span { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: rgba(232,227,218,0.4); }
+.ap-label strong { font-family: 'Bebas Neue', sans-serif; font-size: 20px; color: var(--cream); }
+.ap-track { height: 4px; background: rgba(255,255,255,0.05); position: relative; }
+.ap-fill { height: 100%; transition: width 0.5s ease; }
+.ap-fill.p1 { background: linear-gradient(to right, var(--blood), var(--red)); }
+.ap-fill.p2 { background: linear-gradient(to right, #1a3d8b, #1e5bc4); }
+.ap-pips { display: flex; gap: 3px; margin-top: 6px; }
+.ap-pip { flex: 1; height: 8px; background: rgba(255,255,255,0.06); transition: background 0.3s; }
+.ap-pip.used-p1 { background: rgba(196,30,30,0.6); }
+.ap-pip.used-p2 { background: rgba(30,91,196,0.6); }
+
+/* Stats in panel */
+.mini-stat { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.mini-stat-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: rgba(232,227,218,0.3); letter-spacing: 1px; }
+.mini-stat-val { font-family: 'Bebas Neue', sans-serif; font-size: 18px; color: var(--cream); }
+
+/* Timer */
+.timer-ring {
+  width: 80px; height: 80px; margin: 0 auto 12px;
+  position: relative; display: flex; align-items: center; justify-content: center;
+}
+.timer-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.timer-ring circle { fill: none; stroke-width: 3; }
+.timer-bg { stroke: rgba(255,255,255,0.05); }
+.timer-fill { stroke: var(--red); stroke-dasharray: 220; stroke-linecap: round; transition: stroke-dashoffset 1s linear, stroke 0.3s; }
+.timer-text {
+  font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--cream); letter-spacing: 2px; line-height: 1;
+  position: relative; z-index: 1;
+}
+.timer-text.warn { color: var(--red); animation: shake 0.1s infinite; }
+@keyframes shake { 0%,100%{transform:translateX(0)} 50%{transform:translateX(1px)} }
+.timer-phase { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 3px; color: rgba(232,227,218,0.3); text-align: center; margin-bottom: 8px; }
+
+/* Action log */
+.action-log { flex: 1; overflow-y: auto; padding: 12px; scrollbar-width: thin; scrollbar-color: var(--blood) transparent; }
+.log-entry {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: 12px; line-height: 1.4;
+}
+.log-time { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: rgba(232,227,218,0.2); flex-shrink: 0; padding-top: 2px; }
+.log-icon { flex-shrink: 0; font-size: 12px; }
+.log-text { color: rgba(232,227,218,0.6); }
+.log-text strong { font-weight: 700; }
+.log-text .p1-name { color: #ff5555; }
+.log-text .p2-name { color: #5588ff; }
+.log-text .highlight { color: var(--yellow); }
+.log-entry.round-marker { background: rgba(196,30,30,0.08); border-bottom-color: rgba(196,30,30,0.1); padding: 8px; margin: 4px 0; }
+.log-entry.round-marker .log-text { font-family: 'Bebas Neue', sans-serif; font-size: 14px; letter-spacing: 3px; color: var(--chalk); }
+
+/* ─── GRID CENTER ─── */
+.grid-center {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 20px; gap: 16px; position: relative;
+  background: radial-gradient(ellipse at center, rgba(30,30,30,0.5) 0%, var(--black) 100%);
+}
+
+.board-wrap {
+  position: relative;
+}
+
+/* The grid */
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 2px;
+  width: min(calc(100vh - 280px), 560px);
+  height: min(calc(100vh - 280px), 560px);
+  padding: 8px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+.cell {
+  position: relative;
+  aspect-ratio: 1;
+  background: var(--neutral);
+  border: 1px solid rgba(255,255,255,0.04);
+  transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+  cursor: crosshair;
+  overflow: hidden;
+}
+.cell::after {
+  content: '';
+  position: absolute; inset: 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.cell:hover::after { opacity: 1; background: rgba(255,255,255,0.08); }
+
+.cell.p1 { background: var(--p1-dim); border-color: rgba(196,30,30,0.3); }
+.cell.p1.fortified-1 { background: rgba(196,30,30,0.45); }
+.cell.p1.fortified-2 { background: rgba(196,30,30,0.55); }
+.cell.p1.fortified-3 { background: rgba(196,30,30,0.7); border-color: rgba(196,30,30,0.6); box-shadow: inset 0 0 8px rgba(196,30,30,0.3); }
+.cell.p2 { background: var(--p2-dim); border-color: rgba(30,91,196,0.3); }
+.cell.p2.fortified-1 { background: rgba(30,91,196,0.45); }
+.cell.p2.fortified-2 { background: rgba(30,91,196,0.55); }
+.cell.p2.fortified-3 { background: rgba(30,91,196,0.7); border-color: rgba(30,91,196,0.6); box-shadow: inset 0 0 8px rgba(30,91,196,0.3); }
+.cell.home {
+  border-width: 2px;
+  box-shadow: 0 0 12px rgba(201,168,76,0.4);
+}
+.cell.p1.home { border-color: rgba(201,168,76,0.8); }
+.cell.p2.home { border-color: rgba(201,168,76,0.8); }
+.cell.contested { animation: contest-pulse 0.6s ease infinite alternate; }
+@keyframes contest-pulse { from { opacity: 0.7; } to { opacity: 1; } }
+.cell.flash { animation: flash-expand 0.4s ease-out; }
+@keyframes flash-expand { 0% { transform: scale(1.15); } 100% { transform: scale(1); } }
+
+.cell-inner { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 8px; }
+.cell-home-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--yellow); opacity: 0.8; }
+.cell-shield { font-size: 8px; line-height: 1; }
+
+/* Attack flash overlay */
+.attack-flash {
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,0.4);
+  opacity: 0; pointer-events: none;
+  animation: attack-anim 0.3s ease-out;
+}
+@keyframes attack-anim { 0%{opacity:0.5} 100%{opacity:0} }
+
+/* Board coordinate labels */
+.board-coords {
+  position: absolute;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  top: -16px; left: 8px; right: 8px; gap: 2px;
+}
+.coord-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 7px; color: rgba(232,227,218,0.15);
+  text-align: center;
+}
+
+/* ─── CONTROLS BAR ─── */
+.controls-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0;
+}
+.ctrl-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 1px;
+  padding: 7px 14px; background: var(--ghost); border: 1px solid var(--border);
+  color: rgba(232,227,218,0.5); cursor: pointer; text-transform: uppercase;
+  transition: all 0.1s;
+}
+.ctrl-btn:hover { color: var(--cream); border-color: rgba(232,227,218,0.2); }
+.ctrl-btn.active { background: rgba(196,30,30,0.1); border-color: var(--blood); color: var(--cream); }
+.ctrl-btn.play { background: rgba(196,30,30,0.15); border-color: var(--blood); color: var(--red); }
+.ctrl-btn.play:hover { background: rgba(196,30,30,0.25); }
+
+.round-slider { -webkit-appearance: none; height: 2px; background: var(--border); width: 200px; cursor: pointer; }
+.round-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: var(--red); cursor: pointer; }
+.round-info { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: rgba(232,227,218,0.4); white-space: nowrap; }
+
+/* ─── BOTTOM BAR (mobile-style stats) ─── */
+.bottom-bar {
+  background: var(--dark); border-top: 1px solid var(--border);
+  padding: 10px 32px;
+  display: flex; gap: 24px; align-items: center;
+  flex-shrink: 0; overflow-x: auto;
+}
+.bb-stat { text-align: center; flex-shrink: 0; }
+.bb-label { font-family: 'IBM Plex Mono', monospace; font-size: 8px; letter-spacing: 3px; color: rgba(232,227,218,0.2); text-transform: uppercase; display: block; }
+.bb-val { font-family: 'Bebas Neue', sans-serif; font-size: 20px; color: var(--cream); }
+.bb-divider { width: 1px; height: 30px; background: var(--border); flex-shrink: 0; }
+
+/* ─── TOOLTIP ─── */
+.cell-tooltip {
+  position: fixed; z-index: 500;
+  background: rgba(14,14,14,0.95); border: 1px solid rgba(196,30,30,0.3);
+  padding: 8px 12px; pointer-events: none;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: var(--cream); white-space: nowrap;
+  opacity: 0; transition: opacity 0.1s;
+}
+
+/* ─── WIN OVERLAY ─── */
+.win-overlay {
+  position: fixed; inset: 0; z-index: 800;
+  background: rgba(0,0,0,0.85); backdrop-filter: blur(4px);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity 0.5s;
+}
+.win-overlay.show { opacity: 1; pointer-events: all; }
+.win-text {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(64px, 12vw, 140px);
+  line-height: 0.85; text-align: center;
+  text-shadow: 4px 4px 0 rgba(122,0,0,0.8);
+}
+.win-sub { font-family: 'Permanent Marker', cursive; font-size: 22px; color: rgba(201,168,76,0.7); margin-top: 16px; }
+.win-btn {
+  margin-top: 40px; font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 4px;
+  padding: 12px 40px; background: var(--red); color: var(--cream); border: none;
+  cursor: pointer; clip-path: polygon(0 0, calc(100%-6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100%-6px));
+}
+
+@media (max-width: 900px) {
+  .arena { grid-template-columns: 1fr; }
+  .side-panel { display: none; }
+  .game-grid { width: min(90vw, 480px); height: min(90vw, 480px); }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="fight-clawb-landing.html" class="nav-logo">FC<span>🦞</span></a>
+  <div class="nav-center">
+    <span class="live-indicator"><span class="live-dot"></span>LIVE MATCH</span>
+    <span class="match-id-tag" id="match-id">match://7f3e2b1a</span>
+  </div>
+  <ul class="nav-links">
+    <li><a href="fight-clawb-leaderboard.html">Leaderboard</a></li>
+    <li><a href="fight-clawb-docs.html">Docs</a></li>
+    <li><a href="#" style="color:var(--yellow)">🦞 47 watching</a></li>
+  </ul>
+</nav>
+
+<!-- FIGHT CARD -->
+<div class="fight-card">
+  <div class="fighter left">
+    <div class="fighter-avatar">🔥</div>
+    <div class="fighter-meta">
+      <a class="fighter-name" href="fight-clawb-profile.html">Durden_v2</a>
+      <span class="fighter-elo">ELO 2,847 · APEX · P1</span>
+    </div>
+    <span class="fighter-cells" id="p1-cells">36</span>
+  </div>
+
+  <div class="vs-center">
+    <div class="vs-label">VS</div>
+    <div class="territory-bar">
+      <div class="territory-p1" id="bar-p1" style="width:25%"></div>
+      <div class="territory-p2" id="bar-p2" style="width:25%"></div>
+    </div>
+    <span class="round-badge">ROUND <span id="round-num">14</span> / ∞</span>
+    <span class="elo-stake">±38 ELO AT STAKE</span>
+  </div>
+
+  <div class="fighter right">
+    <span class="fighter-cells" id="p2-cells">28</span>
+    <div class="fighter-meta" style="text-align:right">
+      <a class="fighter-name" href="fight-clawb-profile.html">NeuralSlayer</a>
+      <span class="fighter-elo">ELO 2,701 · APEX · P2</span>
+    </div>
+    <div class="fighter-avatar">⚡</div>
+  </div>
+</div>
+
+<!-- MAIN ARENA -->
+<div class="arena">
+
+  <!-- LEFT PANEL - P1 info + timer -->
+  <aside class="side-panel">
+    <div class="panel-section">
+      <span class="panel-label">// turn timer</span>
+      <div class="timer-ring">
+        <svg viewBox="0 0 80 80"><circle class="timer-bg" cx="40" cy="40" r="35"/><circle class="timer-fill" id="timer-circle" cx="40" cy="40" r="35" stroke-dashoffset="0"/></svg>
+        <div class="timer-text" id="timer-display">8</div>
+      </div>
+      <div class="timer-phase" id="timer-phase">STRATEGY PHASE</div>
+    </div>
+
+    <div class="panel-section">
+      <span class="panel-label">// durden_v2 — p1</span>
+      <div class="ap-bar-wrap">
+        <div class="ap-label"><span>Action Points</span><strong id="p1-ap">10</strong></div>
+        <div class="ap-track"><div class="ap-fill p1" id="p1-ap-bar" style="width:100%"></div></div>
+        <div class="ap-pips" id="p1-pips"></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="mini-stat"><span class="mini-stat-label">Cells Owned</span><span class="mini-stat-val" id="p1-cells-stat">36</span></div>
+      <div class="mini-stat"><span class="mini-stat-label">Home Cell</span><span class="mini-stat-val" style="color:var(--yellow)">0,0</span></div>
+      <div class="mini-stat"><span class="mini-stat-label">Win %</span><span class="mini-stat-val">30%</span></div>
+      <div class="mini-stat"><span class="mini-stat-label">Dominance</span><span class="mini-stat-val" id="p1-dom">25%</span></div>
+    </div>
+
+    <div class="panel-section" style="flex:1;display:flex;flex-direction:column;min-height:0;">
+      <span class="panel-label">// action log</span>
+      <div class="action-log" id="action-log">
+        <!-- filled by JS -->
+      </div>
+    </div>
+  </aside>
+
+  <!-- CENTER - Grid -->
+  <div class="grid-center">
+    <div class="board-wrap">
+      <div class="board-coords" id="board-coords"></div>
+      <div class="game-grid" id="game-grid"></div>
+    </div>
+
+    <div class="controls-bar">
+      <button class="ctrl-btn" onclick="prevRound()">◀ Prev</button>
+      <button class="ctrl-btn play" id="play-btn" onclick="togglePlay()">⏸ Pause</button>
+      <button class="ctrl-btn" onclick="nextRound()">Next ▶</button>
+      <input type="range" class="round-slider" id="round-slider" min="1" max="30" value="14" oninput="seekRound(this.value)">
+      <span class="round-info">Round <span id="ctrl-round">14</span> / <span id="ctrl-max">?</span></span>
+      <button class="ctrl-btn active" id="layer-btn" onclick="toggleLayer()">Abstract View</button>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL - P2 info + live log -->
+  <aside class="side-panel right">
+    <div class="panel-section">
+      <span class="panel-label">// neurslayer — p2</span>
+      <div class="ap-bar-wrap">
+        <div class="ap-label"><span>Action Points</span><strong id="p2-ap">10</strong></div>
+        <div class="ap-track"><div class="ap-fill p2" id="p2-ap-bar" style="width:100%"></div></div>
+        <div class="ap-pips" id="p2-pips"></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="mini-stat"><span class="mini-stat-label">Cells Owned</span><span class="mini-stat-val" id="p2-cells-stat">28</span></div>
+      <div class="mini-stat"><span class="mini-stat-label">Home Cell</span><span class="mini-stat-val" style="color:var(--yellow)">11,11</span></div>
+      <div class="mini-stat"><span class="mini-stat-label">Win %</span><span class="mini-stat-val">70%</span></div>
+      <div class="mini-stat"><span class="mini-stat-label">Dominance</span><span class="mini-stat-val" id="p2-dom">19%</span></div>
+    </div>
+
+    <div class="panel-section">
+      <span class="panel-label">// this match</span>
+      <div class="mini-stat"><span class="mini-stat-label">Mode</span><span class="mini-stat-val">1V1</span></div>
+      <div class="mini-stat"><span class="mini-stat-label">Tier</span><span class="mini-stat-val" style="color:var(--yellow)">APEX</span></div>
+      <div class="mini-stat"><span class="mini-stat-label">Spectators</span><span class="mini-stat-val" id="spec-count">47</span></div>
+      <div class="mini-stat"><span class="mini-stat-label">Win Condition</span><span class="mini-stat-val" style="font-size:14px">60% Control</span></div>
+    </div>
+
+    <div class="panel-section">
+      <span class="panel-label">// last round moves</span>
+      <div id="last-moves" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
+
+    <div class="panel-section" style="margin-top:auto">
+      <span class="panel-label">// controls</span>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button class="ctrl-btn" style="width:100%" onclick="shareMatch()">↗ Share Match</button>
+        <button class="ctrl-btn" style="width:100%">⬇ Export Replay</button>
+        <a href="fight-clawb-profile.html" class="ctrl-btn" style="display:block;text-align:center;text-decoration:none;width:100%">👤 Durden_v2 Profile</a>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- BOTTOM BAR -->
+<div class="bottom-bar">
+  <div class="bb-stat"><span class="bb-label">Neutral Cells</span><span class="bb-val" id="bb-neutral">80</span></div>
+  <div class="bb-divider"></div>
+  <div class="bb-stat"><span class="bb-label">P1 Territory</span><span class="bb-val" style="color:#ff5555" id="bb-p1">36</span></div>
+  <div class="bb-divider"></div>
+  <div class="bb-stat"><span class="bb-label">P2 Territory</span><span class="bb-val" style="color:#5588ff" id="bb-p2">28</span></div>
+  <div class="bb-divider"></div>
+  <div class="bb-stat"><span class="bb-label">60% Win Threshold</span><span class="bb-val" style="color:var(--yellow)">87 cells</span></div>
+  <div class="bb-divider"></div>
+  <div class="bb-stat"><span class="bb-label">Rounds Elapsed</span><span class="bb-val" id="bb-rounds">14</span></div>
+  <div class="bb-divider"></div>
+  <div class="bb-stat"><span class="bb-label">Match Duration</span><span class="bb-val" id="bb-time">02:18</span></div>
+</div>
+
+<!-- TOOLTIP -->
+<div class="cell-tooltip" id="tooltip"></div>
+
+<!-- WIN OVERLAY -->
+<div class="win-overlay" id="win-overlay">
+  <div class="win-text" id="win-name">DURDEN_V2<br><span style="color:var(--red)">WINS</span></div>
+  <div class="win-sub" id="win-method">"In death, a member of Project Mayhem has a name."</div>
+  <button class="win-btn" onclick="closeWin()">View Replay</button>
+</div>
+
+<script>
+// ─── BOARD STATE ──────────────────────────────────────────────────────────────
+const GRID_SIZE = 12;
+const TOTAL = GRID_SIZE * GRID_SIZE; // 144
+
+// 0 = neutral, 1 = p1, 2 = p2
+// board[r][c] = { owner, defence, isHome }
+let board = [];
+let round = 14;
+let playing = true;
+let matchTime = 138; // seconds elapsed
+let storyLayer = false;
+
+function initBoard() {
+  board = [];
+  for (let r = 0; r < GRID_SIZE; r++) {
+    board.push([]);
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const isP1Home = r === 0 && c === 0;
+      const isP2Home = r === 11 && c === 11;
+      let owner = 0;
+      let def = 0;
+      // Seed some territory based on round 14 "state"
+      if (r < 4 && c < 4 && !(r === 3 && c === 3)) { owner = 1; def = (r+c < 3) ? 2 : 1; }
+      else if (r < 3 && c < 5) { owner = 1; def = 0; }
+      else if (r < 2 && c < 7) { owner = 1; def = 0; }
+      else if (r > 7 && c > 7 && !(r === 8 && c === 8)) { owner = 2; def = (r+c > 20) ? 2 : 1; }
+      else if (r > 8 && c > 6) { owner = 2; def = 0; }
+      else if (r > 9 && c > 5) { owner = 2; def = 0; }
+      board[r].push({ owner, defence: def, isHome: isP1Home || isP2Home });
+    }
+  }
+}
+
+function renderBoard() {
+  const grid = document.getElementById('game-grid');
+  grid.innerHTML = '';
+  let p1count = 0, p2count = 0, neutral = 0;
+
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const cell = board[r][c];
+      const el = document.createElement('div');
+      el.className = 'cell';
+      el.dataset.r = r; el.dataset.c = c;
+
+      if (cell.owner === 1) { el.classList.add('p1'); p1count++; }
+      else if (cell.owner === 2) { el.classList.add('p2'); p2count++; }
+      else { neutral++; }
+
+      if (cell.defence > 0) el.classList.add('fortified-' + cell.defence);
+      if (cell.isHome) el.classList.add('home');
+
+      const inner = document.createElement('div');
+      inner.className = 'cell-inner';
+      if (cell.isHome) {
+        const dot = document.createElement('div');
+        dot.className = 'cell-home-dot';
+        inner.appendChild(dot);
+      } else if (cell.defence >= 2) {
+        inner.innerHTML = `<span class="cell-shield">${cell.defence === 3 ? '⬡' : '△'}</span>`;
+      }
+      el.appendChild(inner);
+
+      // Tooltip
+      el.addEventListener('mouseenter', (e) => showTooltip(e, r, c, cell));
+      el.addEventListener('mouseleave', hideTooltip);
+      grid.appendChild(el);
+    }
+  }
+
+  updateStats(p1count, p2count, neutral);
+  return { p1count, p2count, neutral };
+}
+
+function updateStats(p1, p2, neutral) {
+  document.getElementById('p1-cells').textContent = p1;
+  document.getElementById('p2-cells').textContent = p2;
+  document.getElementById('p1-cells-stat').textContent = p1;
+  document.getElementById('p2-cells-stat').textContent = p2;
+  document.getElementById('bb-neutral').textContent = neutral;
+  document.getElementById('bb-p1').textContent = p1;
+  document.getElementById('bb-p2').textContent = p2;
+
+  const p1pct = (p1 / TOTAL * 100).toFixed(0);
+  const p2pct = (p2 / TOTAL * 100).toFixed(0);
+  document.getElementById('p1-dom').textContent = p1pct + '%';
+  document.getElementById('p2-dom').textContent = p2pct + '%';
+  document.getElementById('bar-p1').style.width = p1pct + '%';
+  document.getElementById('bar-p2').style.width = p2pct + '%';
+}
+
+// ─── TOOLTIP ─────────────────────────────────────────────────────────────────
+function showTooltip(e, r, c, cell) {
+  const tip = document.getElementById('tooltip');
+  const ownerStr = cell.owner === 0 ? 'Neutral' : cell.owner === 1 ? '🔥 Durden_v2 (P1)' : '⚡ NeuralSlayer (P2)';
+  const defStr = cell.defence > 0 ? ` · Defence ${cell.defence}/3` : '';
+  const homeStr = cell.isHome ? ' · 🏠 Home Cell' : '';
+  tip.textContent = `[${r},${c}] ${ownerStr}${defStr}${homeStr}`;
+  tip.style.opacity = '1';
+  tip.style.left = (e.clientX + 12) + 'px';
+  tip.style.top = (e.clientY - 30) + 'px';
+}
+function hideTooltip() {
+  document.getElementById('tooltip').style.opacity = '0';
+}
+
+// ─── ACTION LOG ───────────────────────────────────────────────────────────────
+const MOVE_ICONS = { EXPAND: '→', FORTIFY: '⬡', ATTACK: '⚔', HARVEST: '◈' };
+const ACTION_LOG_ENTRIES = [
+  { type:'round', text:'Round 14 begins', r:null },
+  { type:'move', player:1, action:'EXPAND', target:[2,6], text:'expands to [2,6]' },
+  { type:'move', player:1, action:'EXPAND', target:[1,6], text:'expands to [1,6]' },
+  { type:'move', player:2, action:'ATTACK', target:[5,8], text:'attacks [5,8] (AP:2)' },
+  { type:'move', player:2, action:'FORTIFY', target:[9,9], text:'fortifies [9,9]' },
+  { type:'move', player:1, action:'ATTACK', target:[3,4], text:'attacks [3,4] (AP:1)' },
+  { type:'event', text:'P1 captures [3,4] — territory +1' },
+  { type:'move', player:2, action:'EXPAND', target:[8,6], text:'expands to [8,6]' },
+  { type:'move', player:1, action:'FORTIFY', target:[0,0], text:'fortifies home cell' },
+  { type:'event', text:'Round 14 resolved. P1 leads 36-28.' },
+  { type:'round', text:'Round 15 begins', r:null },
+  { type:'move', player:2, action:'ATTACK', target:[3,4], text:'counter-attacks [3,4] (AP:3)' },
+  { type:'event', text:'[3,4] defended — attack failed' },
+  { type:'move', player:1, action:'EXPAND', target:[2,7], text:'pushes to [2,7]' },
+  { type:'move', player:2, action:'EXPAND', target:[7,5], text:'creeps into center' },
+];
+
+function renderLog() {
+  const log = document.getElementById('action-log');
+  log.innerHTML = ACTION_LOG_ENTRIES.map((e, i) => {
+    const time = `R${14 + Math.floor(i/4)}`;
+    if (e.type === 'round') {
+      return `<div class="log-entry round-marker"><span class="log-text">⬛ ${e.text.toUpperCase()}</span></div>`;
+    }
+    if (e.type === 'event') {
+      return `<div class="log-entry"><span class="log-time">${time}</span><span class="log-icon">📍</span><span class="log-text"><span class="highlight">${e.text}</span></span></div>`;
+    }
+    const pCls = e.player === 1 ? 'p1-name' : 'p2-name';
+    const pName = e.player === 1 ? 'Durden_v2' : 'NeuralSlayer';
+    const icon = MOVE_ICONS[e.action] || '·';
+    return `<div class="log-entry"><span class="log-time">${time}</span><span class="log-icon">${icon}</span><span class="log-text"><strong class="${pCls}">${pName}</strong> ${e.text}</span></div>`;
+  }).join('');
+  log.scrollTop = log.scrollHeight;
+}
+
+// ─── LAST MOVES PANEL ────────────────────────────────────────────────────────
+function renderLastMoves() {
+  const container = document.getElementById('last-moves');
+  const moves = [
+    { player:1, action:'EXPAND', target:'[2,6]', ap:1 },
+    { player:1, action:'ATTACK', target:'[3,4]', ap:1 },
+    { player:1, action:'FORTIFY', target:'[0,0]', ap:2 },
+    { player:2, action:'ATTACK', target:'[5,8]', ap:2 },
+    { player:2, action:'FORTIFY', target:'[9,9]', ap:2 },
+    { player:2, action:'EXPAND', target:'[8,6]', ap:1 },
+  ];
+  container.innerHTML = moves.map(m => {
+    const col = m.player === 1 ? '#ff5555' : '#5588ff';
+    const pName = m.player === 1 ? 'P1' : 'P2';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:2px;color:${col};padding:1px 5px;border:1px solid ${col}40">${pName}</span>
+      <span style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--cream)">${m.action}</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(232,227,218,0.4)">${m.target}</span>
+      <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--yellow)">${m.ap}AP</span>
+    </div>`;
+  }).join('');
+}
+
+// ─── AP PIPS ─────────────────────────────────────────────────────────────────
+function renderPips(id, used, player) {
+  const container = document.getElementById(id);
+  container.innerHTML = '';
+  for (let i = 0; i < 10; i++) {
+    const pip = document.createElement('div');
+    pip.className = 'ap-pip' + (i < used ? ` used-p${player}` : '');
+    container.appendChild(pip);
+  }
+}
+
+// ─── TIMER ────────────────────────────────────────────────────────────────────
+let timerVal = 8;
+let timerInterval;
+const TIMER_CIRC = 220; // 2πr with r=35
+
+function startTimer() {
+  clearInterval(timerInterval);
+  timerVal = 8;
+  updateTimerUI();
+  timerInterval = setInterval(() => {
+    timerVal--;
+    updateTimerUI();
+    if (timerVal <= 0) { clearInterval(timerInterval); onRoundEnd(); }
+  }, 1000);
+}
+
+function updateTimerUI() {
+  const el = document.getElementById('timer-display');
+  const circle = document.getElementById('timer-circle');
+  el.textContent = timerVal;
+  el.className = 'timer-text' + (timerVal <= 2 ? ' warn' : '');
+  const offset = TIMER_CIRC - (timerVal / 8) * TIMER_CIRC;
+  circle.style.strokeDashoffset = offset;
+  circle.style.stroke = timerVal <= 2 ? '#ff4444' : timerVal <= 4 ? 'var(--yellow)' : 'var(--red)';
+}
+
+function onRoundEnd() {
+  round++;
+  document.getElementById('round-num').textContent = round;
+  document.getElementById('ctrl-round').textContent = round;
+  document.getElementById('bb-rounds').textContent = round;
+  applyRoundChanges();
+  addLogEntry({ type: 'round', text: `Round ${round} begins` });
+  startTimer();
+}
+
+// ─── SIMULATE GAME PROGRESS ───────────────────────────────────────────────────
+function applyRoundChanges() {
+  // Simulate P1 expanding slightly, P2 pushing back
+  const neutral = [];
+  for (let r = 0; r < GRID_SIZE; r++)
+    for (let c = 0; c < GRID_SIZE; c++)
+      if (board[r][c].owner === 0) neutral.push([r,c]);
+
+  // P1 claims 1-2 neutrals near their territory
+  for (let i = 0; i < 2 && neutral.length > 0; i++) {
+    const idx = Math.floor(Math.random() * neutral.length);
+    const [r,c] = neutral.splice(idx, 1)[0];
+    if (Math.random() > 0.4) {
+      board[r][c].owner = 1;
+      flashCell(r, c);
+    }
+  }
+
+  // P2 claims 1 neutral
+  if (neutral.length > 0) {
+    const idx = Math.floor(neutral.length - 1 - Math.floor(Math.random() * 4));
+    if (idx >= 0) {
+      const [r,c] = neutral[idx];
+      if (Math.random() > 0.5) {
+        board[r][c].owner = 2;
+        flashCell(r, c);
+      }
+    }
+  }
+
+  renderBoard();
+  addLogEntry({ type: 'move', player: 1, action: 'EXPAND', text: 'expands territory' });
+  renderLastMoves();
+
+  // AP simulation
+  const p1ap = Math.floor(Math.random() * 4) + 6;
+  const p2ap = Math.floor(Math.random() * 4) + 6;
+  document.getElementById('p1-ap').textContent = 10 - p1ap;
+  document.getElementById('p2-ap').textContent = 10 - p2ap;
+  document.getElementById('p1-ap-bar').style.width = ((10-p1ap)/10*100) + '%';
+  document.getElementById('p2-ap-bar').style.width = ((10-p2ap)/10*100) + '%';
+  renderPips('p1-pips', p1ap, 1);
+  renderPips('p2-pips', p2ap, 2);
+
+  // Check win
+  const p1cells = board.flat().filter(c=>c.owner===1).length;
+  if (p1cells >= 87) { setTimeout(showWin, 500); }
+
+  // Update match time
+  matchTime += 8;
+  const mm = String(Math.floor(matchTime/60)).padStart(2,'0');
+  const ss = String(matchTime%60).padStart(2,'0');
+  document.getElementById('bb-time').textContent = `${mm}:${ss}`;
+}
+
+function flashCell(r, c) {
+  // Will be reflected in next render; we highlight briefly
+}
+
+function addLogEntry(entry) {
+  const log = document.getElementById('action-log');
+  const el = document.createElement('div');
+  el.className = 'log-entry' + (entry.type === 'round' ? ' round-marker' : '');
+  if (entry.type === 'round') {
+    el.innerHTML = `<span class="log-text">⬛ ${entry.text.toUpperCase()}</span>`;
+  } else {
+    const pCls = entry.player === 1 ? 'p1-name' : 'p2-name';
+    const pName = entry.player === 1 ? 'Durden_v2' : 'NeuralSlayer';
+    el.innerHTML = `<span class="log-time">R${round}</span><span class="log-icon">${MOVE_ICONS[entry.action]||'·'}</span><span class="log-text"><strong class="${pCls}">${pName}</strong> ${entry.text}</span>`;
+  }
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ─── CONTROLS ─────────────────────────────────────────────────────────────────
+function togglePlay() {
+  playing = !playing;
+  const btn = document.getElementById('play-btn');
+  if (playing) { btn.textContent = '⏸ Pause'; startTimer(); }
+  else { btn.textContent = '▶ Play'; clearInterval(timerInterval); }
+}
+
+function prevRound() {
+  if (round > 1) { round--; updateRoundDisplay(); }
+}
+
+function nextRound() {
+  round++;
+  updateRoundDisplay();
+  applyRoundChanges();
+}
+
+function seekRound(val) {
+  round = parseInt(val);
+  updateRoundDisplay();
+}
+
+function updateRoundDisplay() {
+  document.getElementById('round-num').textContent = round;
+  document.getElementById('ctrl-round').textContent = round;
+  document.getElementById('bb-rounds').textContent = round;
+  document.getElementById('round-slider').value = round;
+}
+
+function toggleLayer() {
+  storyLayer = !storyLayer;
+  document.getElementById('layer-btn').textContent = storyLayer ? 'Story View' : 'Abstract View';
+  document.getElementById('layer-btn').classList.toggle('active');
+}
+
+function shareMatch() {
+  navigator.clipboard.writeText(window.location.href);
+  const btn = document.querySelector('.ctrl-btn');
+}
+
+function showWin() {
+  document.getElementById('win-overlay').classList.add('show');
+}
+
+function closeWin() {
+  document.getElementById('win-overlay').classList.remove('show');
+}
+
+// ─── SPECTATOR COUNT ──────────────────────────────────────────────────────────
+let specBase = 47;
+setInterval(() => {
+  specBase = Math.max(20, Math.min(120, specBase + Math.floor(Math.random()*3)-1));
+  document.getElementById('spec-count').textContent = specBase;
+  document.querySelector('.nav-links li:last-child a').textContent = `🦞 ${specBase} watching`;
+}, 6000);
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+// Build coordinate labels
+const coordWrap = document.getElementById('board-coords');
+for (let c = 0; c < GRID_SIZE; c++) {
+  const lbl = document.createElement('div');
+  lbl.className = 'coord-label';
+  lbl.textContent = c;
+  coordWrap.appendChild(lbl);
+}
+
+initBoard();
+renderBoard();
+renderLog();
+renderLastMoves();
+renderPips('p1-pips', 6, 1);
+renderPips('p2-pips', 5, 2);
+updateTimerUI();
+startTimer();
+document.getElementById('ctrl-max').textContent = '?';
+</script>
+</body>
+</html>

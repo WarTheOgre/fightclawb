@@ -1,0 +1,108 @@
+# prometheus/prometheus.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent Arena — Prometheus Configuration
+# Scrape interval: 15s global, overridden per job where needed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  scrape_timeout:      10s
+  external_labels:
+    environment: production
+    platform:    arena
+
+# ── Alertmanager ─────────────────────────────────────────────────────────────
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+      timeout: 10s
+
+# ── Alert rules ───────────────────────────────────────────────────────────────
+rule_files:
+  - /etc/prometheus/alerts/*.yml
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCRAPE TARGETS
+# ─────────────────────────────────────────────────────────────────────────────
+
+scrape_configs:
+
+  # ── Self-monitoring ────────────────────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── Arena Identity Service ─────────────────────────────────────────────────
+  - job_name: arena-identity
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['arena-identity:3001']
+        labels:
+          service: arena-identity
+          tier:    application
+    # Map HTTP status code 401 as a non-fatal scrape (metrics endpoint is open)
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'go_.*'
+        action: drop   # drop default Go runtime metrics if identity service is Go
+
+  # ── Arena Gateway Service ──────────────────────────────────────────────────
+  - job_name: arena-gateway
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['arena-gateway:3002']
+        labels:
+          service: arena-gateway
+          tier:    application
+
+  # ── Host system ───────────────────────────────────────────────────────────
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: host
+          tier:    infrastructure
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: postgres
+          tier:    database
+    metric_relabel_configs:
+      # Keep only the metrics we care about to reduce cardinality
+      - source_labels: [__name__]
+        regex: 'pg_(stat_user_tables|stat_database|locks|settings|up|connections|stat_activity).*'
+        action: keep
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: redis
+          tier:    database
+
+  # ── Alertmanager ──────────────────────────────────────────────────────────
+  - job_name: alertmanager
+    static_configs:
+      - targets: ['alertmanager:9093']
+
+  # ── Grafana self-monitoring ────────────────────────────────────────────────
+  - job_name: grafana
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['grafana:3100']
+
+  # ── Docker cAdvisor (optional — add if you deploy cAdvisor for containers) ─
+  # - job_name: cadvisor
+  #   static_configs:
+  #     - targets: ['cadvisor:8080']
+  #   metric_relabel_configs:
+  #     - source_labels: [container_label_com_docker_compose_service]
+  #       target_label: service

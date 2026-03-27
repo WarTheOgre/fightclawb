@@ -1,0 +1,112 @@
+# alertmanager/alertmanager.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Routing: critical → Slack #arena-critical + email
+#          warning  → Slack #arena-warnings
+#          info     → silence (visible in Grafana only)
+# Replace all CHANGE_ME_ values with real credentials.
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  smtp_smarthost:        'smtp.gmail.com:587'
+  smtp_from:             'arena-alerts@yourdomain.com'
+  smtp_auth_username:    'arena-alerts@yourdomain.com'
+  smtp_auth_password:    'CHANGE_ME_APP_PASSWORD'
+  smtp_require_tls:      true
+  slack_api_url:         'CHANGE_ME_SLACK_WEBHOOK_URL'
+  resolve_timeout:       5m
+
+# ── Inhibition rules ─────────────────────────────────────────────────────────
+inhibit_rules:
+  # If a service is completely down, suppress all its sub-alerts
+  - source_matchers:
+      - alertname = ServiceDown
+    target_matchers:
+      - severity =~ "warning|info"
+    equal: ['service']
+
+  # Critical DB alert suppresses lower-severity DB warnings
+  - source_matchers:
+      - alertname =~ "PgDown|RedisDown"
+    target_matchers:
+      - alertname =~ "PgConnection.*|HighPgQuery.*|HighRedis.*"
+
+# ── Routes ───────────────────────────────────────────────────────────────────
+route:
+  receiver:         default
+  group_by:         ['alertname', 'service']
+  group_wait:       30s
+  group_interval:   5m
+  repeat_interval:  4h
+
+  routes:
+    # Critical alerts — immediate page
+    - matchers:
+        - severity = critical
+      receiver: critical
+      group_wait:      10s
+      group_interval:  1m
+      repeat_interval: 30m
+      continue: false
+
+    # Warning alerts — Slack only
+    - matchers:
+        - severity = warning
+      receiver: warning
+      group_wait:      1m
+      group_interval:  10m
+      repeat_interval: 2h
+      continue: false
+
+    # Info / default — log-only (no-op receiver)
+    - matchers:
+        - severity = info
+      receiver: silence
+
+# ── Receivers ────────────────────────────────────────────────────────────────
+receivers:
+
+  - name: default
+    slack_configs:
+      - channel:      '#arena-alerts'
+        send_resolved: true
+        title:        '{{ .CommonAnnotations.summary }}'
+        text:         '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+  - name: critical
+    slack_configs:
+      - channel:      '#arena-critical'
+        send_resolved: true
+        icon_emoji:    ':rotating_light:'
+        username:      'Arena Alert Bot'
+        title:         ':rotating_light: CRITICAL — {{ .CommonAnnotations.summary }}'
+        text: |
+          *Severity:* critical
+          *Affected:* {{ range .Alerts }}{{ .Labels.service }}{{ end }}
+          {{ range .Alerts }}{{ .Annotations.description }}
+          Runbook: {{ .Annotations.runbook }}{{ end }}
+        color: '#FF0000'
+    email_configs:
+      - to:             'CHANGE_ME_ONCALL_EMAIL'
+        send_resolved:  true
+        headers:
+          Subject: '[CRITICAL] Arena Alert: {{ .CommonAnnotations.summary }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Runbook: {{ .Annotations.runbook }}
+          Labels: {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+          {{ end }}
+
+  - name: warning
+    slack_configs:
+      - channel:      '#arena-warnings'
+        send_resolved: true
+        icon_emoji:    ':warning:'
+        username:      'Arena Alert Bot'
+        title:         ':warning: WARNING — {{ .CommonAnnotations.summary }}'
+        text:          '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        color:         '#FFA500'
+
+  - name: silence
+    # No-op — alerts routed here are only visible in Alertmanager UI

@@ -1,0 +1,30 @@
+# grafana/provisioning/datasources/datasources.yml
+apiVersion: 1
+
+datasources:
+  - name:      Prometheus
+    type:      prometheus
+    uid:       prometheus
+    url:       http://prometheus:9090
+    access:    proxy
+    isDefault: true
+    jsonData:
+      timeInterval:         15s
+      queryTimeout:         60s
+      httpMethod:           POST
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: tempo
+
+  - name:   Loki
+    type:   loki
+    uid:    loki
+    url:    http://loki:3200
+    access: proxy
+    jsonData:
+      maxLines:    1000
+      derivedFields:
+        - name:            matchId
+          matcherRegex:    '"matchId":"([^"]+)"'
+          url:             '/d/arena-game-metrics?var-match_id=$${__value.raw}'
+          datasourceUid:   prometheus

@@ -1,0 +1,60 @@
+version: 2
+updates:
+  # arena-identity
+  - package-ecosystem: npm
+    directory: /arena-identity
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: UTC
+    open-pull-requests-limit: 5
+    labels: [dependencies, arena-identity]
+    groups:
+      production-deps:
+        patterns: ['*']
+        exclude-patterns: ['eslint*', 'prettier*', '@types/*']
+      dev-deps:
+        patterns: ['eslint*', 'prettier*', '@types/*']
+
+  # arena-gateway
+  - package-ecosystem: npm
+    directory: /arena-gateway
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: UTC
+    open-pull-requests-limit: 5
+    labels: [dependencies, arena-gateway]
+    groups:
+      production-deps:
+        patterns: ['*']
+        exclude-patterns: ['eslint*', 'prettier*', '@types/*']
+
+  # frontend
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: UTC
+    open-pull-requests-limit: 5
+    labels: [dependencies, frontend]
+    groups:
+      next-deps:
+        patterns: ['next', 'react', 'react-dom']
+      production-deps:
+        patterns: ['*']
+        exclude-patterns: ['next', 'react*', 'eslint*', '@types/*']
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: UTC
+    labels: [dependencies, github-actions]

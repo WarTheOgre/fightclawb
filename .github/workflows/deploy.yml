@@ -1,0 +1,225 @@
+name: Deploy
+
+on:
+  # Manual trigger (production deploys are always intentional)
+  workflow_dispatch:
+    inputs:
+      sha_tag:
+        description: 'Image SHA tag to deploy (e.g. sha-abc1234). Leave empty to use latest main.'
+        required: false
+        default: ''
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options: [production, staging]
+      skip_migrations:
+        description: 'Skip database migrations (emergency only)'
+        type: boolean
+        default: false
+
+  # Auto-deploy after successful build on main (optional — comment out to disable)
+  # workflow_run:
+  #   workflows: [Build]
+  #   types: [completed]
+  #   branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/fight-clawb
+
+jobs:
+  # ─── Resolve target tag ───────────────────────────────────────────────────
+  resolve:
+    name: Resolve Deploy Target
+    runs-on: ubuntu-latest
+    outputs:
+      sha_tag: ${{ steps.resolve.outputs.sha_tag }}
+      environment: ${{ steps.resolve.outputs.environment }}
+    steps:
+      - name: Resolve SHA tag
+        id: resolve
+        run: |
+          TAG="${{ github.event.inputs.sha_tag }}"
+          if [[ -z "$TAG" ]]; then
+            # Use the short SHA of the triggering commit
+            TAG="sha-$(echo ${{ github.sha }} | cut -c1-7)"
+          fi
+          echo "sha_tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "environment=${{ github.event.inputs.environment || 'production' }}" >> "$GITHUB_OUTPUT"
+          echo "Deploying tag: ${TAG} to ${{ github.event.inputs.environment || 'production' }}"
+
+  # ─── Deploy ──────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to ${{ needs.resolve.outputs.environment }}
+    runs-on: ubuntu-latest
+    needs: [resolve]
+    environment: ${{ needs.resolve.outputs.environment }}
+    concurrency:
+      group: deploy-${{ needs.resolve.outputs.environment }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare deploy scripts
+        run: |
+          chmod +x scripts/deploy.sh scripts/rollback.sh scripts/migrate.sh 2>/dev/null || true
+
+      - name: Copy scripts to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: 'scripts/,docker-compose.yml,docker-compose.prod.yml,migrations/'
+          target: '/opt/fight-clawb/release/${{ needs.resolve.outputs.sha_tag }}'
+
+      - name: Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SHA_TAG: ${{ needs.resolve.outputs.sha_tag }}
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+          SKIP_MIGRATIONS: ${{ github.event.inputs.skip_migrations || 'false' }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          envs: SHA_TAG,IMAGE_PREFIX,SKIP_MIGRATIONS,GHCR_USER,GHCR_TOKEN,ENVIRONMENT
+          timeout: 300s
+          script: |
+            set -euo pipefail
+
+            RELEASE_DIR="/opt/fight-clawb/release/${SHA_TAG}"
+            CURRENT_LINK="/opt/fight-clawb/current"
+            DEPLOY_LOG="/opt/fight-clawb/logs/deploy-${SHA_TAG}.log"
+
+            mkdir -p /opt/fight-clawb/{logs,releases,backups}
+
+            exec > >(tee -a "$DEPLOY_LOG") 2>&1
+            echo "=== Deploy started: $(date -u) ==="
+            echo "=== Tag: ${SHA_TAG} ==="
+
+            # ── 1. Auth with GHCR ──────────────────────────────────────────
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+
+            # ── 2. Pull images ─────────────────────────────────────────────
+            echo "--- Pulling images ---"
+            docker pull "${IMAGE_PREFIX}-identity:${SHA_TAG}"
+            docker pull "${IMAGE_PREFIX}-gateway:${SHA_TAG}"
+            docker pull "${IMAGE_PREFIX}-frontend:${SHA_TAG}"
+
+            # ── 3. Write env for this release ─────────────────────────────
+            # Env file lives on the server; we inject the image tags
+            cp /opt/fight-clawb/.env "${RELEASE_DIR}/.env"
+            cat >> "${RELEASE_DIR}/.env" <<ENV
+            IDENTITY_IMAGE=${IMAGE_PREFIX}-identity:${SHA_TAG}
+            GATEWAY_IMAGE=${IMAGE_PREFIX}-gateway:${SHA_TAG}
+            FRONTEND_IMAGE=${IMAGE_PREFIX}-frontend:${SHA_TAG}
+            ENV
+
+            # ── 4. Database migrations ─────────────────────────────────────
+            if [[ "${SKIP_MIGRATIONS}" != "true" ]]; then
+              echo "--- Running migrations ---"
+              bash "${RELEASE_DIR}/scripts/migrate.sh" "${RELEASE_DIR}/.env"
+              echo "Migrations complete ✓"
+            else
+              echo "--- MIGRATIONS SKIPPED (emergency flag set) ---"
+            fi
+
+            # ── 5. Rolling restart ─────────────────────────────────────────
+            echo "--- Starting rolling restart ---"
+            bash "${RELEASE_DIR}/scripts/deploy.sh" \
+              "${RELEASE_DIR}" \
+              "${SHA_TAG}" \
+              "${IMAGE_PREFIX}"
+
+            # ── 6. Record this release as current ─────────────────────────
+            ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
+
+            # ── 7. Keep only last 3 releases (cleanup) ────────────────────
+            cd /opt/fight-clawb/release
+            ls -t | tail -n +4 | xargs -r rm -rf
+            echo "Pruned old releases, keeping last 3"
+
+            echo "=== Deploy complete: $(date -u) ==="
+
+      - name: Post-deploy health check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            set -euo pipefail
+
+            echo "Running post-deploy health checks..."
+
+            check_health() {
+              local name="$1"
+              local url="$2"
+              local max_attempts=15
+              local attempt=1
+
+              while [[ $attempt -le $max_attempts ]]; do
+                if curl -sf --max-time 5 "$url" > /dev/null 2>&1; then
+                  echo "  ✓ ${name} is healthy"
+                  return 0
+                fi
+                echo "  Attempt ${attempt}/${max_attempts} failed for ${name}..."
+                sleep 4
+                ((attempt++))
+              done
+
+              echo "  ✗ ${name} FAILED health check after ${max_attempts} attempts"
+              return 1
+            }
+
+            FAILED=0
+            check_health "Identity Service" "http://localhost:3001/health" || FAILED=1
+            check_health "Gateway Service"  "http://localhost:3002/health" || FAILED=1
+            check_health "Frontend"         "http://localhost:3000"        || FAILED=1
+
+            if [[ $FAILED -eq 1 ]]; then
+              echo "Health checks FAILED — triggering rollback"
+              exit 1
+            fi
+
+            echo "All health checks passed ✓"
+
+      - name: Rollback on failure
+        if: failure()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            echo "=== ROLLBACK TRIGGERED ==="
+            bash /opt/fight-clawb/current/scripts/rollback.sh
+
+      - name: Notify deployment status
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        continue-on-error: true
+        env:
+          DEPLOY_STATUS: ${{ job.status }}
+          SHA_TAG: ${{ needs.resolve.outputs.sha_tag }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          envs: DEPLOY_STATUS,SHA_TAG
+          script: |
+            # Log deployment outcome (extend to Slack/webhook as needed)
+            echo "[$(date -u)] Deploy ${SHA_TAG}: ${DEPLOY_STATUS}" \
+              >> /opt/fight-clawb/logs/deploy-history.log

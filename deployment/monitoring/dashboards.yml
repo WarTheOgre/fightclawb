@@ -1,0 +1,16 @@
+# grafana/provisioning/dashboards/dashboards.yml
+apiVersion: 1
+
+providers:
+  - name:            Arena Dashboards
+    orgId:           1
+    folder:          Arena
+    folderUid:       arena
+    type:            file
+    disableDeletion: false
+    editable:        true
+    updateIntervalSeconds: 30
+    allowUiUpdates:  true
+    options:
+      path:    /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

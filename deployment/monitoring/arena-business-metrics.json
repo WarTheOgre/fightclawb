@@ -1,0 +1,232 @@
+{
+  "uid": "arena-business-metrics",
+  "title": "Arena — Business Metrics",
+  "description": "Registrations, active agents, retention, tier distribution, credit consumption",
+  "tags": ["arena", "business"],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": { "from": "now-30d", "to": "now" },
+  "schemaVersion": 38,
+  "version": 1,
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "🧑‍💻 Agent Growth",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total Agents (all-time)",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "expr": "sum(arena_agents_registered_total)", "legendFormat": "Total" }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "New Agents Today",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "expr": "sum(increase(arena_agents_registered_total[24h]))", "legendFormat": "Today" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Daily Active Agents (24h)",
+      "description": "Distinct agents that played ≥1 match in 24 hours",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 10 }, { "color": "green", "value": 50 }] }
+        }
+      },
+      "targets": [{ "expr": "arena_active_agents{window=\"24h\"}", "legendFormat": "DAA" }]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Weekly Active Agents (7d)",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "expr": "arena_active_agents{window=\"7d\"}", "legendFormat": "WAA" }]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Retention Rate (DAA / WAA)",
+      "description": "Daily/Weekly active ratio — proxy for daily retention",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.2 }, { "color": "green", "value": 0.4 }] }
+        }
+      },
+      "targets": [{
+        "expr": "arena_active_agents{window=\"24h\"} / arena_active_agents{window=\"7d\"}",
+        "legendFormat": "Daily retention"
+      }]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "30-Day Active Agents",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "expr": "arena_active_agents{window=\"30d\"}", "legendFormat": "MAA" }]
+    },
+
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Agent Registrations Over Time (daily)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 20 } } },
+      "targets": [
+        { "expr": "sum(increase(arena_agents_registered_total[24h]))", "legendFormat": "Registrations / day" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Active Agents (all windows)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        { "expr": "arena_active_agents{window=\"24h\"}", "legendFormat": "24h" },
+        { "expr": "arena_active_agents{window=\"7d\"}", "legendFormat": "7d" },
+        { "expr": "arena_active_agents{window=\"30d\"}", "legendFormat": "30d" }
+      ]
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "🏆 Tier Distribution",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "collapsed": false
+    },
+    {
+      "id": 21,
+      "type": "piechart",
+      "title": "Agents by Elo Tier (current)",
+      "gridPos": { "h": 10, "w": 8, "x": 0, "y": 14 },
+      "options": {
+        "pieType": "donut",
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }
+      },
+      "fieldConfig": {
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "APEX" }, "properties": [{ "id": "color", "value": { "fixedColor": "gold", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "CHAMPION" }, "properties": [{ "id": "color", "value": { "fixedColor": "#e8c86a", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "ELITE" }, "properties": [{ "id": "color", "value": { "fixedColor": "super-light-blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "RECRUIT" }, "properties": [{ "id": "color", "value": { "fixedColor": "gray", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [{ "expr": "arena_agents_by_tier", "legendFormat": "{{ tier }}" }]
+    },
+    {
+      "id": 22,
+      "type": "bargauge",
+      "title": "Tier Breakdown",
+      "gridPos": { "h": 10, "w": 8, "x": 8, "y": 14 },
+      "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "expr": "arena_agents_by_tier", "legendFormat": "{{ tier }}" }]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Tier Distribution Over Time",
+      "gridPos": { "h": 10, "w": 8, "x": 16, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 20, "lineWidth": 1.5 } } },
+      "targets": [{ "expr": "arena_agents_by_tier", "legendFormat": "{{ tier }}" }]
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "💰 Credit Economy",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "collapsed": false
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Credits Consumed / Hour by Mode",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        { "expr": "sum by (mode) (rate(arena_credits_consumed_total[5m])) * 3600", "legendFormat": "{{ mode }} credits/h" }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "Credits Consumed Today",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 25 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "expr": "sum(increase(arena_credits_consumed_total[24h]))", "legendFormat": "Credits today" }]
+    },
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "Revenue Proxy Today",
+      "description": "Credits × $0.05 (adjust per pricing)",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 25 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "targets": [{ "expr": "sum(increase(arena_credits_consumed_total[24h])) * 0.05", "legendFormat": "Revenue proxy" }]
+    },
+
+    {
+      "id": 40,
+      "type": "row",
+      "title": "🎯 Platform Health — Success Metrics vs Targets",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "collapsed": false
+    },
+    {
+      "id": 41,
+      "type": "table",
+      "title": "Phase 1 Targets vs Actuals",
+      "description": "From the technical spec: 200 agents by Month 2, 50 matches/day by Month 3",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 34 },
+      "options": { "footer": { "show": false } },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Metric" }, "properties": [{ "id": "custom.width", "value": 200 }] }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        }
+      ],
+      "targets": [
+        { "expr": "sum(arena_agents_registered_total)", "legendFormat": "Registered agents" },
+        { "expr": "sum(increase(arena_matches_total[24h]))", "legendFormat": "Matches / day" },
+        { "expr": "arena_active_agents{window=\"24h\"}", "legendFormat": "DAA (active/day)" }
+      ]
+    }
+  ]
+}

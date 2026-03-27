@@ -1,0 +1,173 @@
+# promtail/promtail-config.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Ships logs from Docker containers + system logs to Loki.
+# Labels applied: service, container, level, match_id (extracted via pipeline)
+# ─────────────────────────────────────────────────────────────────────────────
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level:        warn
+
+positions:
+  filename: /tmp/promtail-positions.yaml
+
+clients:
+  - url: http://loki:3200/loki/api/v1/push
+    batchwait:  500ms
+    batchsize:  1048576   # 1MB
+    timeout:    10s
+    backoff_config:
+      min_period:  500ms
+      max_period:  5m
+      max_retries: 20
+
+# ─────────────────────────────────────────────────────────────────────────────
+scrape_configs:
+
+  # ── Arena Identity Service ─────────────────────────────────────────────────
+  - job_name: arena-identity
+    docker_sd_configs:
+      - host: unix:///run/docker.sock
+        refresh_interval: 10s
+        filters:
+          - name:   name
+            values: ['arena-identity']
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label:  container
+      - replacement:   arena-identity
+        target_label:  service
+      - replacement:   arena
+        target_label:  platform
+    pipeline_stages:
+      # Parse structured JSON logs emitted by the Node.js services
+      - json:
+          expressions:
+            level:    level
+            msg:      msg
+            agentId:  agentId
+            matchId:  matchId
+            did:      did
+            duration: duration
+      - labels:
+          level:
+          matchId:
+      # Drop verbose debug logs in production
+      - match:
+          selector: '{level="debug"}'
+          action:   drop
+          drop_counter_reason: debug_log
+
+  # ── Arena Gateway Service ──────────────────────────────────────────────────
+  - job_name: arena-gateway
+    docker_sd_configs:
+      - host: unix:///run/docker.sock
+        refresh_interval: 10s
+        filters:
+          - name:   name
+            values: ['arena-gateway']
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label:  container
+      - replacement:   arena-gateway
+        target_label:  service
+      - replacement:   arena
+        target_label:  platform
+    pipeline_stages:
+      - json:
+          expressions:
+            level:   level
+            msg:     msg
+            matchId: matchId
+            round:   round
+            agentId: agentId
+            event:   event
+      - labels:
+          level:
+          matchId:
+          event:
+      # Flag timeout events for easy querying
+      - match:
+          selector: '{event="timeout"}'
+          stages:
+            - labels:
+                alert: timeout
+      - match:
+          selector: '{level="debug"}'
+          action:   drop
+          drop_counter_reason: debug_log
+
+  # ── PostgreSQL container logs ─────────────────────────────────────────────
+  - job_name: postgres
+    docker_sd_configs:
+      - host: unix:///run/docker.sock
+        refresh_interval: 10s
+        filters:
+          - name:   name
+            values: ['arena-postgres']
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label:  container
+      - replacement:   postgres
+        target_label:  service
+    pipeline_stages:
+      # Postgres CSV log format: timestamp,user,db,pid,...,message,detail,...
+      - regex:
+          expression: '.*(?P<level>FATAL|ERROR|WARNING|LOG|INFO|DEBUG).*:\s+(?P<msg>.+)'
+      - labels:
+          level:
+      # Drop routine checkpoint and autovacuum noise unless it's slow
+      - match:
+          selector: '{level="LOG"}'
+          stages:
+            - regex:
+                expression: 'checkpoint|autovacuum|statistics'
+            - drop:
+                expression: '.'
+                drop_counter_reason: pg_routine_log
+
+  # ── Redis container logs ──────────────────────────────────────────────────
+  - job_name: redis
+    docker_sd_configs:
+      - host: unix:///run/docker.sock
+        refresh_interval: 10s
+        filters:
+          - name:   name
+            values: ['arena-redis']
+    relabel_configs:
+      - replacement: redis
+        target_label: service
+
+  # ── Host system logs (syslog / auth) ─────────────────────────────────────
+  - job_name: syslog
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          service: host
+          __path__: /var/log/syslog
+    pipeline_stages:
+      - regex:
+          expression: '(?P<timestamp>\S+ \S+) (?P<host>\S+) (?P<process>[^:]+): (?P<msg>.*)'
+      - labels:
+          process:
+
+  - job_name: auth-log
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          service: host
+          __path__: /var/log/auth.log
+    pipeline_stages:
+      - regex:
+          expression: '(?P<timestamp>\S+ \S+) (?P<host>\S+) (?P<process>[^:]+): (?P<msg>.*)'
+      - labels:
+          process:
+      # Flag failed SSH attempts
+      - match:
+          selector: '{process="sshd"}'
+          stages:
+            - regex:
+                expression: 'Failed password'
+            - labels:
+                alert: ssh_fail

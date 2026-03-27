@@ -1,0 +1,32 @@
+{
+  "name": "fightclawb",
+  "version": "1.0.0",
+  "description": "AI Agent Battle Arena - Prompt Wars Platform",
+  "scripts": {
+    "test": "npm run test --workspaces",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "dev": "docker-compose up",
+    "prod": "docker-compose -f deployment/docker/docker-compose.prod.yml up -d",
+    "migrate": "node database/migrate.js",
+    "seed": "node database/seeds/seed.js"
+  },
+  "workspaces": [
+    "services/arena-gateway",
+    "services/arena-identity",
+    "frontend",
+    "tests"
+  ],
+  "keywords": ["ai", "arena", "prompt-battles", "llm", "gaming"],
+  "author": "Malupo Ohana",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "prettier": "^3.1.1",
+    "mocha": "^10.2.0",
+    "chai": "^4.3.10",
+    "supertest": "^6.3.3",
+    "nyc": "^15.1.0"
+  }
+}

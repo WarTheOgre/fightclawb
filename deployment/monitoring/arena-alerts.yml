@@ -1,0 +1,263 @@
+# prometheus/alerts/arena-alerts.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent Arena — Alerting Rules
+#
+# Severity levels:
+#   critical  → Page immediately (PagerDuty / SMS)
+#   warning   → Notify Slack / email, action within the hour
+#   info      → Informational — visible in Grafana, no notification
+# ─────────────────────────────────────────────────────────────────────────────
+
+groups:
+
+  # ── Service Health ─────────────────────────────────────────────────────────
+  - name: arena.service_health
+    interval: 30s
+    rules:
+
+      - alert: ServiceDown
+        expr: up{tier="application"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary:     'Arena service {{ $labels.service }} is DOWN'
+          description: 'The {{ $labels.service }} service has not responded to Prometheus scrapes for more than 1 minute.'
+          runbook:     'https://docs.arena.gg/runbooks/service-down'
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(arena_http_requests_total{status_code=~"5.."}[5m])) by (service)
+            /
+            sum(rate(arena_http_requests_total[5m])) by (service)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary:     '{{ $labels.service }} HTTP error rate >5%'
+          description: 'Error rate is {{ printf "%.1f" (mul $value 100) }}% on {{ $labels.service }} (threshold: 5%).'
+
+      - alert: VeryHighErrorRate
+        expr: |
+          (
+            sum(rate(arena_http_requests_total{status_code=~"5.."}[5m])) by (service)
+            /
+            sum(rate(arena_http_requests_total[5m])) by (service)
+          ) > 0.20
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary:     '{{ $labels.service }} HTTP error rate >20%'
+          description: 'Error rate is {{ printf "%.1f" (mul $value 100) }}% — likely a service degradation.'
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(arena_http_request_duration_seconds_bucket[5m])) by (le, service, route)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary:     '{{ $labels.service }} p99 latency >2s on {{ $labels.route }}'
+          description: 'p99 response time is {{ printf "%.2f" $value }}s on route {{ $labels.route }}.'
+
+  # ── Database ───────────────────────────────────────────────────────────────
+  - name: arena.database
+    interval: 30s
+    rules:
+
+      - alert: PgConnectionPoolHigh
+        expr: |
+          (
+            arena_pg_pool_connections{state="waiting"}
+            /
+            arena_pg_pool_connections{state="total"}
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'PostgreSQL connection pool >80% utilised'
+          description: 'Waiting connections are {{ printf "%.0f" (mul $value 100) }}% of total pool. Consider increasing PG_POOL_MAX or adding PgBouncer.'
+
+      - alert: PgConnectionPoolCritical
+        expr: |
+          arena_pg_pool_connections{state="waiting"} > 15
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary:     'PostgreSQL pool exhaustion imminent'
+          description: '{{ $value }} connections are waiting for a PG connection — queries will start failing.'
+
+      - alert: PgDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary:     'PostgreSQL is DOWN'
+          description: 'The postgres-exporter cannot reach PostgreSQL. All match persistence is offline.'
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary:     'Redis is DOWN'
+          description: 'The redis-exporter cannot reach Redis. Live match state and leaderboard cache are offline.'
+
+      - alert: HighPgQueryLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(arena_pg_query_duration_seconds_bucket[5m])) by (le, operation, table)
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'Slow PG queries on {{ $labels.table }}'
+          description: 'p95 query latency for {{ $labels.operation }} on {{ $labels.table }} is {{ printf "%.3f" $value }}s. Check for missing indexes or table bloat.'
+
+  # ── Infrastructure ─────────────────────────────────────────────────────────
+  - name: arena.infrastructure
+    interval: 60s
+    rules:
+
+      - alert: DiskSpaceCritical
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/", fstype!="tmpfs"}
+            /
+            node_filesystem_size_bytes{mountpoint="/", fstype!="tmpfs"}
+          ) < 0.10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary:     'Disk space <10% remaining'
+          description: 'Only {{ printf "%.1f" (mul $value 100) }}% disk space remains on the host. Prometheus data or PostgreSQL WAL may fill the disk.'
+
+      - alert: DiskSpaceWarning
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/", fstype!="tmpfs"}
+            /
+            node_filesystem_size_bytes{mountpoint="/", fstype!="tmpfs"}
+          ) < 0.20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'Disk space <20% remaining'
+          description: '{{ printf "%.1f" (mul $value 100) }}% disk space remains. Plan cleanup or expansion.'
+
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
+            /
+            node_memory_MemTotal_bytes
+          ) > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'Host memory usage >90%'
+          description: 'Memory usage is {{ printf "%.1f" (mul $value 100) }}%. OOM risk for arena services.'
+
+      - alert: HighCpuUsage
+        expr: |
+          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'Host CPU >85% sustained'
+          description: 'CPU has been above 85% for 10 minutes. Match engine latency may increase.'
+
+  # ── Game Metrics ───────────────────────────────────────────────────────────
+  - name: arena.game
+    interval: 30s
+    rules:
+
+      - alert: MatchQueueBacklog
+        expr: sum(arena_queue_size) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'Match queue has >100 agents waiting'
+          description: '{{ $value }} agents are queued across all tiers/modes. Matchmaker may be slow or match capacity is insufficient.'
+
+      - alert: HighTimeoutRate
+        expr: |
+          (
+            sum(rate(arena_agent_timeouts_total{severity="forfeit"}[15m]))
+            /
+            sum(rate(arena_matches_total[15m]))
+          ) > 0.10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'Agent timeout/forfeit rate >10%'
+          description: 'More than 10% of matches are ending by forfeit. This may indicate SDK issues or a popular buggy agent.'
+
+      - alert: NoMatchesStarting
+        expr: |
+          rate(arena_matches_total[30m]) == 0
+            and
+          sum(arena_queue_size) > 2
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary:     'Matchmaker appears stuck'
+          description: 'Agents are queuing but no new matches have started in 30 minutes. Check matchmaker logs.'
+
+      - alert: SlowRoundResolution
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(arena_round_resolution_seconds_bucket[5m])) by (le, mode)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'Round resolution p95 >500ms in {{ $labels.mode }}'
+          description: 'The match engine is taking {{ printf "%.3f" $value }}s (p95) to resolve rounds. Agent turn budgets may be impacted.'
+
+  # ── Sandbox ────────────────────────────────────────────────────────────────
+  - name: arena.sandbox
+    interval: 30s
+    rules:
+
+      - alert: HighSandboxFailureRate
+        expr: |
+          (
+            sum(rate(arena_sandbox_jobs_total{status=~"error|killed"}[15m]))
+            /
+            sum(rate(arena_sandbox_jobs_total[15m]))
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'Sandbox job failure rate >5%'
+          description: '{{ printf "%.1f" (mul $value 100) }}% of Tier 1 sandbox jobs are failing/being killed. Check gVisor or Docker daemon logs.'
+
+      - alert: SlowContainerSpawn
+        expr: |
+          histogram_quantile(0.95, sum(rate(arena_sandbox_spawn_seconds_bucket[5m])) by (le)) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary:     'Container spawn p95 >5 seconds'
+          description: 'gVisor containers are taking {{ printf "%.1f" $value }}s to spawn. Tier 1 agents may miss their turn budgets.'

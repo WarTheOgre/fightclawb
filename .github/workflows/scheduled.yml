@@ -1,0 +1,215 @@
+name: Scheduled Jobs
+
+on:
+  schedule:
+    # Daily backup — 02:00 UTC
+    - cron: '0 2 * * *'
+    # Weekly security scan — Sunday 04:00 UTC
+    - cron: '0 4 * * 0'
+    # Monthly full audit — 1st of month, 05:00 UTC
+    - cron: '0 5 1 * *'
+
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Run specific job manually'
+        required: true
+        type: choice
+        options: [backup, security-scan, dependency-audit, all]
+
+jobs:
+  # ─── Daily: Database Backup ───────────────────────────────────────────────
+  backup:
+    name: Database Backup
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' && 
+        (github.event.inputs.job == 'backup' || github.event.inputs.job == 'all') ||
+      github.event_name == 'schedule'
+    steps:
+      - name: Run backup on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            set -euo pipefail
+
+            BACKUP_DIR="/opt/fight-clawb/backups"
+            TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+            BACKUP_FILE="${BACKUP_DIR}/arena_${TIMESTAMP}.sql.gz"
+
+            mkdir -p "$BACKUP_DIR"
+
+            source /opt/fight-clawb/.env
+
+            echo "Starting backup: ${BACKUP_FILE}"
+
+            # Dump + compress
+            PGPASSWORD="${PGPASSWORD}" pg_dump \
+              -h "${PGHOST:-localhost}" \
+              -U "${PGUSER:-arena}" \
+              -d "${PGDATABASE:-arena}" \
+              --no-password \
+              --verbose \
+              --format=plain \
+              | gzip > "${BACKUP_FILE}"
+
+            SIZE=$(du -sh "$BACKUP_FILE" | cut -f1)
+            echo "Backup complete: ${BACKUP_FILE} (${SIZE})"
+
+            # Keep 30 days of daily backups
+            find "$BACKUP_DIR" -name "arena_*.sql.gz" -mtime +30 -delete
+            echo "Pruned backups older than 30 days"
+
+            # Verify the backup is readable
+            gunzip -t "${BACKUP_FILE}" && echo "Backup integrity check passed ✓"
+
+            # List current backups
+            ls -lh "$BACKUP_DIR"
+
+      # Optional: copy backup off-server (uncomment and configure)
+      # - name: Upload to S3/R2
+      #   run: |
+      #     aws s3 cp backup.sql.gz s3://your-bucket/arena-backups/
+
+  # ─── Weekly: Security Scan ────────────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' && 
+        (github.event.inputs.job == 'security-scan' || github.event.inputs.job == 'all') ||
+      github.event_name == 'schedule' && 
+        github.event.schedule == '0 4 * * 0'
+
+    strategy:
+      matrix:
+        service: [arena-identity, arena-gateway, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: npm ci
+
+      - name: npm audit (all severity levels)
+        working-directory: ${{ matrix.service }}
+        run: npm audit --json > audit-results.json || true
+
+      - name: Parse and report audit results
+        working-directory: ${{ matrix.service }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const audit = JSON.parse(fs.readFileSync('audit-results.json', 'utf8'));
+            const meta = audit.metadata || {};
+            const vulns = meta.vulnerabilities || {};
+            console.log('=== Security Audit: ${{ matrix.service }} ===');
+            console.log('Critical:', vulns.critical || 0);
+            console.log('High:    ', vulns.high || 0);
+            console.log('Moderate:', vulns.moderate || 0);
+            console.log('Low:     ', vulns.low || 0);
+            if ((vulns.critical || 0) > 0 || (vulns.high || 0) > 0) {
+              console.log('FAIL: Critical or high vulnerabilities found');
+              process.exit(1);
+            }
+            console.log('PASS: No critical/high vulnerabilities');
+          "
+
+      - name: Upload audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-${{ matrix.service }}-${{ github.run_id }}
+          path: ${{ matrix.service }}/audit-results.json
+          retention-days: 90
+
+  # ─── Trivy container scan ─────────────────────────────────────────────────
+  trivy-scan:
+    name: Container Vulnerability Scan
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' && 
+        (github.event.inputs.job == 'security-scan' || github.event.inputs.job == 'all') ||
+      github.event_name == 'schedule' && 
+        github.event.schedule == '0 4 * * 0'
+    permissions:
+      security-events: write
+
+    strategy:
+      matrix:
+        image_suffix: [identity, gateway, frontend]
+
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: >
+            ghcr.io/${{ github.repository_owner }}/fight-clawb-${{ matrix.image_suffix }}:latest
+          format: 'sarif'
+          output: 'trivy-${{ matrix.image_suffix }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'   # don't fail the workflow; upload findings
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-${{ matrix.image_suffix }}.sarif'
+          category: 'trivy-${{ matrix.image_suffix }}'
+
+  # ─── Monthly: Full Dependency Audit ───────────────────────────────────────
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' && 
+        (github.event.inputs.job == 'dependency-audit' || github.event.inputs.job == 'all') ||
+      github.event_name == 'schedule' && 
+        github.event.schedule == '0 5 1 * *'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check for outdated packages (identity)
+        working-directory: arena-identity
+        run: npm ci && npm outdated || true
+
+      - name: Check for outdated packages (gateway)
+        working-directory: arena-gateway
+        run: npm ci && npm outdated || true
+
+      - name: Check for outdated packages (frontend)
+        working-directory: frontend
+        run: npm ci && npm outdated || true
+
+      - name: Generate dependency report
+        run: |
+          echo "# Dependency Report - $(date -u +%Y-%m-%d)" > dep-report.md
+          echo "" >> dep-report.md
+          for svc in arena-identity arena-gateway frontend; do
+            echo "## ${svc}" >> dep-report.md
+            echo '```' >> dep-report.md
+            cd "$svc" && npm outdated 2>/dev/null >> "../dep-report.md" || true && cd ..
+            echo '```' >> dep-report.md
+            echo "" >> dep-report.md
+          done
+          cat dep-report.md
+
+      - name: Upload dependency report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-report-${{ github.run_id }}
+          path: dep-report.md
+          retention-days: 90

@@ -1,0 +1,303 @@
+{
+  "uid": "arena-service-health",
+  "title": "Arena — Service Health",
+  "description": "HTTP traffic, error rates, latency, WebSocket connections, and database health",
+  "tags": ["arena", "health"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "schemaVersion": 38,
+  "version": 1,
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "🚦 Service Status",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Identity Service",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "1": { "text": "UP", "color": "green" }, "0": { "text": "DOWN", "color": "red" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "targets": [{ "expr": "up{service=\"arena-identity\"}", "legendFormat": "" }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Gateway Service",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "1": { "text": "UP", "color": "green" }, "0": { "text": "DOWN", "color": "red" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "targets": [{ "expr": "up{service=\"arena-gateway\"}", "legendFormat": "" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "PostgreSQL",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "UP", "color": "green" }, "0": { "text": "DOWN", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "targets": [{ "expr": "pg_up", "legendFormat": "" }]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Redis",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "UP", "color": "green" }, "0": { "text": "DOWN", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "targets": [{ "expr": "redis_up", "legendFormat": "" }]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Active WebSocket Connections",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }, { "color": "yellow", "value": 100 }, { "color": "red", "value": 500 }] },
+          "unit": "short"
+        }
+      },
+      "targets": [{ "expr": "sum(arena_ws_connections_active)", "legendFormat": "WS Connections" }]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "PG Pool Utilisation",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.6 }, { "color": "red", "value": 0.8 }] }
+        }
+      },
+      "targets": [{
+        "expr": "arena_pg_pool_connections{state=\"waiting\"} / arena_pg_pool_connections{state=\"total\"}",
+        "legendFormat": "Pool Used %"
+      }]
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "📈 Request Traffic",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Request Rate (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "5xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byRegexp", "options": "4xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        { "expr": "sum(rate(arena_http_requests_total{service=\"arena-gateway\"}[5m]))", "legendFormat": "Gateway — all" },
+        { "expr": "sum(rate(arena_http_requests_total{service=\"arena-gateway\",status_code=~\"5..\"}[5m]))", "legendFormat": "Gateway — 5xx" },
+        { "expr": "sum(rate(arena_http_requests_total{service=\"arena-gateway\",status_code=~\"4..\"}[5m]))", "legendFormat": "Gateway — 4xx" },
+        { "expr": "sum(rate(arena_http_requests_total{service=\"arena-identity\"}[5m]))", "legendFormat": "Identity — all" },
+        { "expr": "sum(rate(arena_http_requests_total{service=\"arena-identity\",status_code=~\"5..\"}[5m]))", "legendFormat": "Identity — 5xx" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Response Latency — p50 / p95 / p99 (Gateway)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(arena_http_request_duration_seconds_bucket{service=\"arena-gateway\"}[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(arena_http_request_duration_seconds_bucket{service=\"arena-gateway\"}[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(arena_http_request_duration_seconds_bucket{service=\"arena-gateway\"}[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Error Rate % (5-min window)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.01 }, { "color": "red", "value": 0.05 }] },
+          "custom": { "lineWidth": 2, "thresholdsStyle": { "mode": "area" } }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(arena_http_requests_total{service=\"arena-gateway\",status_code=~\"5..\"}[5m])) / sum(rate(arena_http_requests_total{service=\"arena-gateway\"}[5m]))",
+          "legendFormat": "Gateway 5xx rate"
+        },
+        {
+          "expr": "sum(rate(arena_http_requests_total{service=\"arena-identity\",status_code=~\"5..\"}[5m])) / sum(rate(arena_http_requests_total{service=\"arena-identity\"}[5m]))",
+          "legendFormat": "Identity 5xx rate"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Latency by Route — p95 (Gateway)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "showLegend": true } },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(arena_http_request_duration_seconds_bucket{service=\"arena-gateway\"}[5m])) by (le, route))",
+        "legendFormat": "{{ route }}"
+      }]
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "🗄️ Database Health",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "PG Connection Pool",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        { "expr": "arena_pg_pool_connections{state=\"total\"}", "legendFormat": "Total" },
+        { "expr": "arena_pg_pool_connections{state=\"idle\"}", "legendFormat": "Idle" },
+        { "expr": "arena_pg_pool_connections{state=\"waiting\"}", "legendFormat": "Waiting" }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "PG Query Latency p95 by Table",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(arena_pg_query_duration_seconds_bucket[5m])) by (le, table))",
+        "legendFormat": "{{ table }}"
+      }]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Redis — Hit Rate & Operation Latency",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "targets": [
+        {
+          "expr": "sum(rate(arena_redis_operations_total{result=\"hit\"}[5m])) / sum(rate(arena_redis_operations_total[5m]))",
+          "legendFormat": "Cache hit rate"
+        }
+      ]
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "💻 Host System",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 31,
+          "type": "timeseries",
+          "title": "CPU Usage %",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+          "fieldConfig": { "defaults": { "unit": "percent", "max": 100 } },
+          "targets": [{
+            "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+            "legendFormat": "CPU %"
+          }]
+        },
+        {
+          "id": 32,
+          "type": "timeseries",
+          "title": "Memory Usage",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+          "fieldConfig": { "defaults": { "unit": "bytes" } },
+          "targets": [
+            { "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes", "legendFormat": "Used" },
+            { "expr": "node_memory_MemTotal_bytes", "legendFormat": "Total" }
+          ]
+        },
+        {
+          "id": 33,
+          "type": "timeseries",
+          "title": "Disk Space Remaining",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+          "fieldConfig": { "defaults": { "unit": "bytes" } },
+          "targets": [{ "expr": "node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}", "legendFormat": "Available" }]
+        }
+      ]
+    },
+
+    {
+      "id": 40,
+      "type": "row",
+      "title": "📋 Logs (Loki)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "collapsed": false
+    },
+    {
+      "id": 41,
+      "type": "logs",
+      "title": "Arena Service Logs (errors & warnings)",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 41 },
+      "options": { "dedupStrategy": "none", "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "targets": [{ "expr": "{platform=\"arena\", level=~\"error|warn\"} | json", "legendFormat": "" }],
+      "datasource": { "type": "loki", "uid": "loki" }
+    }
+  ]
+}
