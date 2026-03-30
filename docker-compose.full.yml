@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  arena-identity:
+    build:
+      context: .
+      dockerfile: services/arena-identity/Dockerfile
+    container_name: fightclawb-identity
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DATABASE_URL=postgresql://postgres:password@172.17.0.1:5432/fightclawb
+      - REDIS_URL=redis://172.17.0.1:6379
+      - JWT_SECRET=dev-secret-change-in-production
+    ports:
+      - "3002:3001"
+    network_mode: bridge
+    restart: unless-stopped
+
+  arena-gateway:
+    build:
+      context: .
+      dockerfile: services/arena-gateway/Dockerfile
+    container_name: fightclawb-gateway
+    environment:
+      - NODE_ENV=development
+      - PORT=3002
+      - DATABASE_URL=postgresql://postgres:password@172.17.0.1:5432/fightclawb
+      - REDIS_URL=redis://172.17.0.1:6379
+      - JWT_SECRET=dev-secret-change-in-production
+      - IDENTITY_SERVICE_URL=http://172.17.0.1:3002
+    ports:
+      - "3001:3002"
+    network_mode: bridge
+    restart: unless-stopped
+    depends_on:
+      - arena-identity
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.static
+    container_name: fightclawb-frontend
+    ports:
+      - "3000:3000"
+    network_mode: bridge
+    restart: unless-stopped
+    depends_on:
+      - arena-gateway
+      - arena-identity

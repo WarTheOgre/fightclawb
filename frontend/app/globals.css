@@ -1,0 +1,187 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --black: #0a0a0a;
+  --cream: #e8e6e3;
+  --red: #8b0000;
+  --rust: #a52a2a;
+  --yellow: #d4a574;
+}
+
+@layer base {
+  body {
+    @apply bg-black text-cream;
+    background: var(--black);
+    min-height: auto;
+  }
+  
+  a {
+    @apply text-cream hover:text-red transition-colors;
+  }
+  
+  /* Font classes */
+  .font-bebas {
+    font-family: var(--font-bebas), sans-serif;
+  }
+  .font-marker {
+    font-family: var(--font-marker), cursive;
+  }
+  .font-ibm-mono {
+    font-family: var(--font-ibm-mono), monospace;
+  }
+  .font-oswald {
+    font-family: var(--font-oswald), sans-serif;
+  }
+}
+
+/* ============================================
+   PAGE STRUCTURE: No Overlay
+   ============================================ */
+
+/* Next.js App Router root */
+body > div:first-child {
+  min-height: auto;
+  background: var(--black);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Nav should be sticky, not fixed */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--black);
+  backdrop-filter: blur(10px);
+}
+
+/* Keep nav spacing */
+nav a {
+  margin-right: 2rem !important;
+  display: inline-block !important;
+}
+
+nav span {
+  margin-left: 2rem !important;
+}
+
+/* Main content fills space */
+main {
+  flex: 1;
+  background: var(--black);
+  min-height: calc(100vh - 80px);
+}
+
+section {
+  position: relative;
+  background: var(--black);
+}
+
+/* ============================================
+   GRITTY AESTHETIC: Film Grain & Glitch
+   ============================================ */
+
+/* Film Grain Overlay */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100%" height="100%" filter="url(%23noise)" opacity="0.35"/></svg>');
+  opacity: 0.3;
+  pointer-events: none;
+  z-index: 9999;
+  animation: grain 8s steps(10) infinite;
+}
+
+@keyframes grain {
+  0%, 100% { transform: translate(0, 0); }
+  10% { transform: translate(-5%, -5%); }
+  20% { transform: translate(-10%, 5%); }
+  30% { transform: translate(5%, -10%); }
+  40% { transform: translate(-5%, 15%); }
+  50% { transform: translate(-10%, 5%); }
+  60% { transform: translate(15%, 0); }
+  70% { transform: translate(0, 10%); }
+  80% { transform: translate(-15%, 0); }
+  90% { transform: translate(10%, 5%); }
+}
+
+/* Scanlines Effect */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.15),
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  z-index: 9998;
+  opacity: 0.12;
+}
+
+/* Glitch Effect */
+@keyframes glitch {
+  0% { transform: translate(0); text-shadow: none; }
+  20% { transform: translate(-2px, 2px); text-shadow: 3px 3px 0 #8b0000; }
+  40% { transform: translate(-2px, -2px); text-shadow: -3px 3px 0 #8b0000; }
+  60% { transform: translate(2px, 2px); text-shadow: 3px -3px 0 #8b0000; }
+  80% { transform: translate(2px, -2px); text-shadow: -3px -3px 0 #8b0000; }
+  100% { transform: translate(0); text-shadow: none; }
+}
+
+h1.font-bebas {
+  animation: glitch 5s infinite steps(2, end);
+}
+
+nav a:hover {
+  animation: glitch 0.3s 1;
+}
+
+/* VHS Tracking Lines */
+@keyframes vhs-tracking {
+  0% { opacity: 0; }
+  10% { opacity: 0.8; transform: translateY(-100%); }
+  20% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+.vhs-tracking-line {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.5), transparent);
+  pointer-events: none;
+  z-index: 10000;
+  animation: vhs-tracking 8s infinite;
+  animation-delay: 3s;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  body { font-size: 14px; }
+  nav a { margin-right: 1rem !important; }
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  h1.font-bebas,
+  nav a:hover,
+  .vhs-tracking-line {
+    animation: none !important;
+  }
+}

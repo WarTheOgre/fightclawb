@@ -1,12 +1,27 @@
 {
-  "name": "@fightclawb/frontend",
-  "version": "1.0.0",
-  "description": "FightClawb Frontend Application",
+  "name": "fight-clawb-frontend",
+  "version": "0.1.0",
+  "private": true,
   "scripts": {
-    "start": "serve -s public -l 3000",
-    "dev": "serve -s public -l 3000"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
   },
   "dependencies": {
-    "serve": "^14.2.1"
+    "next": "16.2.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "autoprefixer": "^10.4.27",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.1",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5"
   }
 }
