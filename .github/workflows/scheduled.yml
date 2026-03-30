@@ -28,7 +28,7 @@ jobs:
       github.event_name == 'schedule'
     steps:
       - name: Run backup on server
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}

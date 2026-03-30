@@ -78,7 +78,7 @@ jobs:
           target: '/opt/fight-clawb/release/${{ needs.resolve.outputs.sha_tag }}'
 
       - name: Deploy
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           SHA_TAG: ${{ needs.resolve.outputs.sha_tag }}
           IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
@@ -151,7 +151,7 @@ jobs:
             echo "=== Deploy complete: $(date -u) ==="
 
       - name: Post-deploy health check
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -196,7 +196,7 @@ jobs:
 
       - name: Rollback on failure
         if: failure()
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -208,7 +208,7 @@ jobs:
 
       - name: Notify deployment status
         if: always()
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         continue-on-error: true
         env:
           DEPLOY_STATUS: ${{ job.status }}
