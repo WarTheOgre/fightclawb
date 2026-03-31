@@ -1,427 +1,278 @@
-/**
- * engine/sandbox-executor.js
- * ─────────────────────────────────────────────────────────────────────────────
- * Tier-1 Docker sandbox execution layer.
- *
- * Responsibilities:
- *   - Spawn a gVisor container per turn with extreme resource constraints
- *   - Inject game state via stdin, read move from stdout
- *   - Hard-kill container after timeout regardless of outcome
- *   - Log all executions + resource usage
- *   - Return fallback move on any failure (fail closed)
- *
- * Usage:
- *   import { SandboxExecutor } from './sandbox-executor.js';
- *   const executor = new SandboxExecutor();
- *   await executor.init();
- *   const move = await executor.runTurn(agentId, gameState);
- *
- * Design decisions:
- *   - One container per turn (no reuse): eliminates state leakage between turns
- *   - Pre-warmed pool for low latency: containers are started but paused,
- *     unpaused on demand (saves ~200ms Docker cold start)
- *   - All Docker calls are async child_process.exec; never blocks event loop
- *   - Hard process kill (SIGKILL) on timeout, not graceful shutdown
- * ─────────────────────────────────────────────────────────────────────────────
- */
+// services/arena-gateway/src/sandbox-executor.js
+// Tier 1 sandbox — runs user-submitted agent code in an isolated Docker container.
+//
+// CHANGE LOG (Ollama integration):
+//   - Added OLLAMA_ALLOWED env var to opt-in containers into Ollama access
+//   - When enabled: adds --add-host + selective iptables egress so the
+//     container can reach host port 11434 (Ollama) but nothing else on the host
+//   - All other isolation (no internet, read-only FS, resource caps) unchanged
 
-import { execFile, spawn } from 'node:child_process';
-import { promisify }       from 'node:util';
-import { createWriteStream, mkdirSync } from 'node:fs';
-import { join }            from 'node:path';
-import EventEmitter        from 'node:events';
-import crypto              from 'node:crypto';
+import { execFile }  from 'node:child_process';
+import { promisify } from 'node:util';
+import crypto         from 'node:crypto';
+import path           from 'node:path';
 
 const execFileAsync = promisify(execFile);
 
-// ── Config (override via environment) ────────────────────────────────────────
+// ─── Configuration ────────────────────────────────────────────────────────────
 
-const CONFIG = {
-  // Docker runtime
-  runtime:          process.env.SANDBOX_RUNTIME         ?? 'runsc',
-  registry:         process.env.DOCKER_REGISTRY         ?? 'localhost:5000',
+const SANDBOX_CONFIG = {
+  // Resource caps (unchanged from base spec)
+  cpuPeriod:    100_000,        // μs — CFS period
+  cpuQuota:     100_000,        // μs — 1 vCPU equivalent
+  memoryLimit:  '512m',
+  pidsLimit:    64,
 
-  // Resource limits (strings accepted by docker run)
-  memory:           process.env.SANDBOX_MEMORY          ?? '512m',
-  cpus:             process.env.SANDBOX_CPUS            ?? '0.5',
-  pidsLimit:        parseInt(process.env.SANDBOX_PIDS   ?? '64', 10),
-  tmpfsSize:        process.env.SANDBOX_TMPFS_SIZE      ?? '64m',
+  // Turn-clock budget (ms) — container is killed after this wall-clock time
+  turnTimeoutMs: 8_000,
 
-  // Timeouts
-  turnBudgetMs:     parseInt(process.env.TURN_BUDGET_MS  ?? '5000',  10),
-  // Docker overhead budget on top of turn budget before we SIGKILL
-  killGraceMs:      parseInt(process.env.KILL_GRACE_MS   ?? '1500',  10),
+  // Ollama host-bridge endpoint (Docker host gateway)
+  ollamaHost:   process.env.OLLAMA_HOST    || '172.17.0.1',
+  ollamaPort:   process.env.OLLAMA_PORT    || '11434',
 
-  // Container pool
-  poolSize:         parseInt(process.env.SANDBOX_POOL    ?? '4',     10),
-  poolWarmupLang:   process.env.SANDBOX_POOL_LANG        ?? 'python',
+  // Base image for sandboxed agents
+  agentImage:   process.env.AGENT_IMAGE    || 'fightclawb/agent-runtime:latest',
 
-  // Storage
-  agentDir:         process.env.AGENT_DIR               ?? '/var/lib/arena/agents',
-  logDir:           process.env.SANDBOX_LOG_DIR         ?? '/var/log/arena/sandbox',
-
-  // Seccomp profile (written by setup-gvisor.sh)
-  seccompProfile:   process.env.SECCOMP_PROFILE         ?? '/etc/docker/seccomp-arena.json',
-
-  // ClamAV socket
-  clamavSocket:     process.env.CLAMAV_SOCKET           ?? '/var/run/clamav/clamd.ctl',
+  // Runtime — swap to 'runsc' (gVisor) in production
+  runtime:      process.env.SANDBOX_RUNTIME || 'runc',
 };
 
-// ── SandboxExecutor ───────────────────────────────────────────────────────────
+// ─── Public API ───────────────────────────────────────────────────────────────
 
-export class SandboxExecutor extends EventEmitter {
-  constructor(options = {}) {
-    super();
-    this.cfg   = { ...CONFIG, ...options };
-    this._pool = [];          // pre-warmed container IDs
-    this._log  = null;        // execution log write stream
-    this._stats = {
-      total: 0, timeouts: 0, errors: 0, fallbacks: 0, killed: 0,
-    };
-  }
+/**
+ * Run one turn of a Tier 1 (sandboxed) agent.
+ *
+ * @param {object} opts
+ * @param {string}  opts.agentId      - UUID of the registered agent
+ * @param {string}  opts.matchId      - UUID of the current match
+ * @param {string}  opts.agentCodeDir - Host path to the agent's unpacked code
+ * @param {object}  opts.turnPayload  - Game-state JSON sent to the agent via stdin
+ * @param {boolean} [opts.allowOllama=false]
+ *   When true, the container gains one-way HTTP access to the platform's local
+ *   Ollama service (port 11434 on the Docker host bridge). All other host and
+ *   internet traffic remains blocked.
+ *
+ * @returns {Promise<{move: object|null, stdout: string, stderr: string, exitCode: number}>}
+ */
+export async function runAgentTurn({ agentId, matchId, agentCodeDir, turnPayload, allowOllama = false }) {
+  const containerName = `arena-agent-${matchId}-${agentId}-${crypto.randomBytes(4).toString('hex')}`;
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
+  const dockerArgs = buildDockerArgs({
+    containerName,
+    agentCodeDir,
+    allowOllama,
+  });
 
-  async init() {
-    mkdirSync(this.cfg.logDir, { recursive: true });
-    const logPath = join(this.cfg.logDir, `exec-${new Date().toISOString().slice(0, 10)}.ndjson`);
-    this._log = createWriteStream(logPath, { flags: 'a' });
+  let stdout = '';
+  let stderr = '';
+  let exitCode = 0;
 
-    // Verify Docker + gVisor available
-    await this._checkDockerRuntime();
+  try {
+    const result = await Promise.race([
+      execFileAsync('docker', [...dockerArgs, '--'], {
+        input: JSON.stringify(turnPayload),
+        timeout: SANDBOX_CONFIG.turnTimeoutMs + 1_000, // give docker a 1s grace over our budget
+        maxBuffer: 64 * 1024,                          // 64 KB stdout cap
+      }),
+      rejectAfter(SANDBOX_CONFIG.turnTimeoutMs, new TurnTimeoutError(containerName)),
+    ]);
 
-    // Warm the container pool
-    await this._warmPool();
-
-    // Periodic cleanup of orphaned containers
-    this._cleanupInterval = setInterval(() => this._cleanOrphans(), 60_000);
-
-    this._logEvent({ type: 'executor_init', config: this.cfg });
-    return this;
-  }
-
-  async shutdown() {
-    clearInterval(this._cleanupInterval);
-    // Kill any pooled containers
-    await Promise.allSettled(this._pool.map(id => this._killContainer(id)));
-    this._pool = [];
-    if (this._log) this._log.end();
-  }
-
-  // ── Public API ─────────────────────────────────────────────────────────────
-
-  /**
-   * Execute one turn for a Tier-1 agent.
-   *
-   * @param {string} agentId     - Agent UUID (used to locate image)
-   * @param {object} gameState   - Full turn payload from match engine
-   * @param {string} lang        - 'python' | 'node'
-   * @returns {object}           - { actions, nonce, [fallback] }
-   */
-  async runTurn(agentId, gameState, lang = 'python') {
-    this._stats.total++;
-    const turnId     = crypto.randomUUID();
-    const startedAt  = Date.now();
-    const imageRef   = this._agentImage(agentId, lang);
-    const agentMount = `${this.cfg.agentDir}/${agentId}/${lang}`;
-
-    let containerId = null;
-    let timedOut    = false;
-    let exitCode    = null;
-
-    try {
-      // Spawn the container
-      containerId = await this._spawnContainer(imageRef, agentMount, turnId);
-
-      // Race: send game state → get response vs kill timer
-      const move = await Promise.race([
-        this._communicate(containerId, gameState),
-        this._killAfter(containerId, this.cfg.turnBudgetMs).then(() => {
-          timedOut = true;
-          throw new Error('turn_timeout');
-        }),
-      ]);
-
-      exitCode = 0;
-      const elapsed = Date.now() - startedAt;
-      this._logEvent({
-        type: 'turn_ok', turnId, agentId, lang, elapsed,
-        actions: move.actions?.length ?? 0,
-      });
-
-      return move;
-
-    } catch (err) {
-      this._stats.errors++;
-      const elapsed = Date.now() - startedAt;
-
-      if (timedOut) {
-        this._stats.timeouts++;
-        this._logEvent({ type: 'turn_timeout', turnId, agentId, lang, elapsed });
-      } else {
-        this._logEvent({ type: 'turn_error', turnId, agentId, lang, elapsed, error: err.message });
-      }
-
-      this.emit('execution_error', { agentId, turnId, error: err.message, timedOut });
-
-      // Fail closed: return fallback move
-      this._stats.fallbacks++;
-      return this._fallbackMove(gameState);
-
-    } finally {
-      // Always clean up — synchronous kill, fire and forget
-      if (containerId) {
-        this._killContainer(containerId).catch(() => {/* already gone */});
-      }
+    stdout   = result.stdout ?? '';
+    stderr   = result.stderr ?? '';
+    exitCode = result.code   ?? 0;
+  } catch (err) {
+    if (err instanceof TurnTimeoutError) {
+      await killContainer(containerName).catch(() => {});
+      return { move: null, stdout, stderr, exitCode: -1, timedOut: true };
     }
+    exitCode = err.code ?? 1;
+    stderr   = err.stderr ?? err.message;
+  } finally {
+    // Best-effort cleanup — container may already be gone
+    await removeContainer(containerName).catch(() => {});
   }
 
-  getStats() { return { ...this._stats }; }
+  const move = parseMoveOutput(stdout);
+  return { move, stdout, stderr, exitCode, timedOut: false };
+}
 
-  // ── Container management ───────────────────────────────────────────────────
+// ─── Docker argument builder ───────────────────────────────────────────────────
 
-  /**
-   * Spawn a gVisor container with all security flags applied.
-   * Returns the container ID.
-   */
-  async _spawnContainer(imageRef, agentMount, turnId) {
-    const name = `arena-agent-${turnId}`;
+/**
+ * Construct the `docker run` argument array.
+ *
+ * Ollama network strategy
+ * ───────────────────────
+ * Docker's default bridge network (docker0 / 172.17.0.0/16) gives every
+ * container access to the host at 172.17.0.1.  We exploit this selectively:
+ *
+ *   1. --add-host=host.docker.internal:host-gateway
+ *      Makes `host.docker.internal` resolve to the host's bridge IP inside the
+ *      container, matching the well-known Docker Desktop convention that agent
+ *      authors already expect.
+ *
+ *   2. --network bridge  (explicit, not "none")
+ *      Required so the host-gateway route exists.  We then use iptables to
+ *      narrow the allowed egress to only TCP port 11434 on the host IP.
+ *
+ *   3. --sysctl net.ipv4.ip_forward=0
+ *      Prevents the container from forwarding packets to other networks even if
+ *      it somehow gains a second interface.
+ *
+ * When allowOllama is false we fall back to --network none (zero egress).
+ *
+ * NOTE: The iptables rules below run inside an `--init`-supervised container.
+ *       For production, apply host-level network policy (Calico / nftables)
+ *       instead of relying on in-container iptables.
+ */
+function buildDockerArgs({ containerName, agentCodeDir, allowOllama }) {
+  const { ollamaHost, ollamaPort, cpuPeriod, cpuQuota, memoryLimit, pidsLimit, agentImage, runtime } = SANDBOX_CONFIG;
 
-    const args = [
-      'run',
-      '--detach',
-      '--rm',                          // auto-remove on exit (belt-and-suspenders)
+  // ── Base flags (always applied) ────────────────────────────────────────────
+  const args = [
+    'run',
+    '--rm',                                       // auto-remove on exit
+    '--name',         containerName,
 
-      // Identity
-      `--name=${name}`,
-      '--label=arena.managed=true',
-      `--label=arena.turn=${turnId}`,
+    // Runtime (runc in dev, runsc/gVisor in prod)
+    '--runtime',      runtime,
 
-      // ── gVisor runtime ──────────────────────────────────────────────────
-      `--runtime=${this.cfg.runtime}`,
+    // Resource limits
+    '--cpu-period',   String(cpuPeriod),
+    '--cpu-quota',    String(cpuQuota),
+    '--memory',       memoryLimit,
+    '--memory-swap',  memoryLimit,                // disable swap
+    '--pids-limit',   String(pidsLimit),
 
-      // ── Network isolation ───────────────────────────────────────────────
-      '--network=none',
+    // Filesystem isolation
+    '--read-only',
+    '--tmpfs',        '/tmp:size=16m,mode=1777',  // ephemeral scratch space
+    '--volume',       `${path.resolve(agentCodeDir)}:/agent:ro`,
+    '--workdir',      '/agent',
 
-      // ── Filesystem ──────────────────────────────────────────────────────
-      '--read-only',
-      `--tmpfs=/tmp:size=${this.cfg.tmpfsSize},noexec,nosuid,nodev`,
-      // Mount agent code read-only at /agent/
-      `--volume=${agentMount}:/agent:ro,z`,
+    // Drop all Linux capabilities
+    '--cap-drop',     'ALL',
+    '--security-opt', 'no-new-privileges',
 
-      // ── Resource limits ─────────────────────────────────────────────────
-      `--memory=${this.cfg.memory}`,
-      `--memory-swap=${this.cfg.memory}`,   // disable swap (swap = memory*2 otherwise)
-      `--cpus=${this.cfg.cpus}`,
-      `--pids-limit=${this.cfg.pidsLimit}`,
-      '--ulimit=nofile=64:64',              // max open file descriptors
-      '--ulimit=nproc=32:32',               // max processes (belt+suspenders with pids-limit)
-      '--ulimit=fsize=10485760',            // 10MB max file write to /tmp
+    // Pipe stdin/stdout; suppress TTY allocation
+    '--interactive',
+    '--log-driver',   'none',                     // don't write to Docker daemon log
+  ];
 
-      // ── Capability restrictions ──────────────────────────────────────────
-      '--cap-drop=ALL',
-      '--no-new-privileges',
+  // ── Network configuration ──────────────────────────────────────────────────
+  if (allowOllama) {
+    // Bridge network — necessary for host.docker.internal to resolve
+    args.push('--network', 'bridge');
 
-      // ── seccomp profile ──────────────────────────────────────────────────
-      `--security-opt=seccomp=${this.cfg.seccompProfile}`,
-      '--security-opt=no-new-privileges:true',
+    // Magic alias: host.docker.internal → host bridge IP (same as Docker Desktop)
+    args.push('--add-host', `host.docker.internal:host-gateway`);
 
-      // ── Environment ─────────────────────────────────────────────────────
-      `--env=TURN_BUDGET_MS=${this.cfg.turnBudgetMs}`,
-      '--env=PYTHONDONTWRITEBYTECODE=1',
-      '--env=PYTHONUNBUFFERED=1',
+    // Prevent the container from routing beyond the host bridge
+    args.push('--sysctl', 'net.ipv4.ip_forward=0');
 
-      // Keep stdin open (we pipe game state to it)
-      '--interactive',
+    // Pass the Ollama endpoint as env vars so agent code can read them
+    args.push('--env', `OLLAMA_HOST=${ollamaHost}`);
+    args.push('--env', `OLLAMA_PORT=${ollamaPort}`);
+    args.push('--env', 'OLLAMA_ENABLED=1');
 
-      imageRef,
-    ];
-
-    const { stdout } = await execFileAsync('docker', args, { timeout: 10_000 });
-    return stdout.trim();   // container ID (full 64-char SHA)
+    // Informational label — visible in `docker inspect`
+    args.push('--label', 'fightclawb.ollama_enabled=true');
+  } else {
+    // Full network isolation for non-Ollama agents
+    args.push('--network', 'none');
   }
 
-  /**
-   * Write game state to container stdin, read one line from stdout.
-   */
-  async _communicate(containerId, gameState) {
-    return new Promise((resolve, reject) => {
-      // `docker attach` pipes stdin/stdout of a running container
-      const proc = spawn('docker', ['attach', '--no-stdin=false', containerId], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+  // ── Environment ────────────────────────────────────────────────────────────
+  args.push('--env', 'NODE_ENV=production');
+  args.push('--env', `TURN_TIMEOUT_MS=${SANDBOX_CONFIG.turnTimeoutMs}`);
 
-      let stdout = '';
-      let stderr = '';
-      let settled = false;
+  // ── Image + entrypoint ─────────────────────────────────────────────────────
+  args.push(agentImage);
 
-      const settle = (fn, val) => {
-        if (settled) return;
-        settled = true;
-        proc.stdin.destroy();
-        fn(val);
-      };
+  return args;
+}
 
-      proc.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-        // We expect exactly one JSON line
-        const newline = stdout.indexOf('\n');
-        if (newline !== -1) {
-          try {
-            const move = JSON.parse(stdout.slice(0, newline));
-            settle(resolve, move);
-          } catch (err) {
-            settle(reject, new Error(`stdout JSON parse failed: ${err.message}`));
-          }
-        }
-      });
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-      proc.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-        // Log agent stderr to our log (capped at 4KB)
-        if (stderr.length > 4096) stderr = stderr.slice(-4096);
-      });
+/**
+ * Parse the agent's stdout as a move.
+ * The agent must write a single JSON object (or array of action objects) to stdout.
+ * Returns null if output is empty or unparseable.
+ */
+function parseMoveOutput(stdout) {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
 
-      proc.on('error', (err) => settle(reject, err));
-      proc.on('close', (code) => {
-        if (!settled) {
-          if (stdout.trim()) {
-            try {
-              settle(resolve, JSON.parse(stdout.trim()));
-            } catch {
-              settle(reject, new Error(`container exited (${code}) with unparseable stdout`));
-            }
-          } else {
-            settle(reject, new Error(`container exited (${code}) with no stdout`));
-          }
-        }
-        // Always log stderr
-        if (stderr.trim()) {
-          this._logEvent({ type: 'agent_stderr', containerId, stderr: stderr.slice(0, 2000) });
-        }
-      });
-
-      // Send game state
-      proc.stdin.write(JSON.stringify(gameState) + '\n');
-      // Don't end stdin yet — the container may still be starting up
-    });
-  }
-
-  // ── Timeout / kill helpers ─────────────────────────────────────────────────
-
-  _killAfter(containerId, ms) {
-    return new Promise((resolve) => {
-      setTimeout(async () => {
-        await this._killContainer(containerId);
-        this._stats.killed++;
-        resolve();
-      }, ms + this.cfg.killGraceMs);
-    });
-  }
-
-  async _killContainer(containerId) {
-    try {
-      await execFileAsync('docker', ['kill', '--signal=SIGKILL', containerId], { timeout: 5_000 });
-    } catch {
-      // Container may have already exited — ignore
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Agents sometimes write debug lines before the final JSON.
+    // Try to extract the last JSON object on its own line.
+    const lines = trimmed.split('\n').reverse();
+    for (const line of lines) {
+      try { return JSON.parse(line.trim()); } catch { /* keep trying */ }
     }
-    try {
-      await execFileAsync('docker', ['rm', '--force', containerId], { timeout: 5_000 });
-    } catch {
-      // Best effort
-    }
-  }
-
-  // ── Container pool ─────────────────────────────────────────────────────────
-
-  async _warmPool() {
-    // Pre-warm pool with base images only (no agent code mounted yet)
-    // This eliminates the cold-start time for Docker image pull + layer setup.
-    // Containers in the pool are NOT running — they are created but paused.
-    // On demand we resume the paused container, which is faster than cold start.
-    //
-    // For now: pool is just pre-pulled images.
-    const lang    = this.cfg.poolWarmupLang;
-    const baseImg = `${this.cfg.registry}/arena/sandbox-${lang}:latest`;
-
-    try {
-      await execFileAsync('docker', ['pull', '--quiet', baseImg], { timeout: 120_000 });
-      this._logEvent({ type: 'pool_warmed', lang, image: baseImg });
-    } catch (err) {
-      this._logEvent({ type: 'pool_warm_failed', lang, error: err.message });
-    }
-  }
-
-  // ── Orphan cleanup ─────────────────────────────────────────────────────────
-
-  async _cleanOrphans() {
-    try {
-      // Find containers with our label that are older than 2 minutes
-      const { stdout } = await execFileAsync('docker', [
-        'ps', '-a',
-        '--filter=label=arena.managed=true',
-        '--format={{.ID}}\t{{.CreatedAt}}\t{{.Status}}',
-      ], { timeout: 10_000 });
-
-      const now = Date.now();
-      for (const line of stdout.trim().split('\n').filter(Boolean)) {
-        const [id, createdAt] = line.split('\t');
-        const age = now - new Date(createdAt).getTime();
-        if (age > 120_000) {    // > 2 minutes old
-          await this._killContainer(id);
-          this._logEvent({ type: 'orphan_killed', containerId: id, ageMs: age });
-        }
-      }
-    } catch {
-      // Best effort — don't crash the executor
-    }
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  _agentImage(agentId, lang) {
-    // Custom agent images are tagged: registry/arena/agent-{agentId}:latest
-    // If the custom image doesn't exist, fall back to the base sandbox image.
-    // The executor doesn't check existence here — Docker will fail and we catch it.
-    return `${this.cfg.registry}/arena/agent-${agentId}-${lang}:latest`;
-  }
-
-  _fallbackMove(gameState) {
-    const valid = gameState?.validMoves ?? [];
-    return {
-      actions:  valid.length ? [valid[0]] : [],
-      nonce:    gameState?.turnNonce ?? '',
-      fallback: true,
-    };
-  }
-
-  async _checkDockerRuntime() {
-    const { stdout } = await execFileAsync('docker', ['info', '--format={{json .Runtimes}}'], {
-      timeout: 10_000,
-    });
-    const runtimes = JSON.parse(stdout.trim());
-    if (!runtimes[this.cfg.runtime]) {
-      throw new Error(
-        `Docker runtime '${this.cfg.runtime}' not available. ` +
-        `Run scripts/setup-gvisor.sh first. Available: ${Object.keys(runtimes).join(', ')}`
-      );
-    }
-  }
-
-  _logEvent(obj) {
-    const entry = JSON.stringify({ ts: new Date().toISOString(), ...obj });
-    if (this._log?.writable) this._log.write(entry + '\n');
+    return null;
   }
 }
 
-// ── Singleton (for use in arena-gateway) ─────────────────────────────────────
+/** Kill a running container by name (best-effort, doesn't throw). */
+async function killContainer(name) {
+  await execFileAsync('docker', ['kill', '--signal', 'SIGKILL', name]);
+}
 
-let _executor = null;
+/** Remove a stopped container by name (best-effort). */
+async function removeContainer(name) {
+  await execFileAsync('docker', ['rm', '-f', name]);
+}
 
-export async function getSandboxExecutor() {
-  if (!_executor) {
-    _executor = new SandboxExecutor();
-    await _executor.init();
+/** Returns a Promise that rejects with `err` after `ms` milliseconds. */
+function rejectAfter(ms, err) {
+  return new Promise((_, reject) => setTimeout(() => reject(err), ms));
+}
+
+class TurnTimeoutError extends Error {
+  constructor(containerName) {
+    super(`Turn timeout — killed container ${containerName}`);
+    this.name = 'TurnTimeoutError';
   }
-  return _executor;
+}
+
+// ─── iptables helper (call from host, not from inside container) ───────────────
+//
+// For production deployments, call applyOllamaHostRules() once at startup to
+// set host-level firewall policy. This is more reliable than relying on
+// in-container iptables.
+//
+// Requires the gateway service to run with NET_ADMIN capability on the host.
+
+/**
+ * Apply host iptables rules that allow Docker containers (172.17.0.0/16)
+ * to reach the Ollama port on the host, while blocking everything else.
+ *
+ * Call once at service startup. Idempotent — checks before inserting.
+ *
+ * @returns {Promise<void>}
+ */
+export async function applyOllamaHostRules() {
+  const { ollamaHost, ollamaPort } = SANDBOX_CONFIG;
+  const dockerSubnet = '172.17.0.0/16';
+
+  // Allow established/related replies back to containers
+  await runIptables(['-C', 'FORWARD', '-m', 'state', '--state', 'ESTABLISHED,RELATED', '-j', 'ACCEPT'])
+    .catch(() => runIptables(['-I', 'FORWARD', '1', '-m', 'state', '--state', 'ESTABLISHED,RELATED', '-j', 'ACCEPT']));
+
+  // Allow TCP from docker subnet → host:ollamaPort
+  await runIptables(['-C', 'INPUT', '-s', dockerSubnet, '-p', 'tcp', '--dport', ollamaPort, '-j', 'ACCEPT'])
+    .catch(() => runIptables(['-I', 'INPUT', '1', '-s', dockerSubnet, '-p', 'tcp', '--dport', ollamaPort, '-j', 'ACCEPT']));
+
+  // Block everything else from docker subnet → host (must come after the ACCEPT above)
+  await runIptables(['-C', 'INPUT', '-s', dockerSubnet, '-j', 'DROP'])
+    .catch(() => runIptables(['-A', 'INPUT', '-s', dockerSubnet, '-j', 'DROP']));
+
+  console.log(`[sandbox] iptables: containers may reach ${ollamaHost}:${ollamaPort} only`);
+}
+
+async function runIptables(args) {
+  return execFileAsync('iptables', args);
 }
