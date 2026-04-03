@@ -3,6 +3,7 @@
 
 const { createBoard, validateActions, applyMove, checkVictory, getValidMoves, AP_PER_TURN, MAX_TURNS } = require('./board');
 const storage = require('./battle-storage');
+const { executeAgent } = require('./agent-runner');
 
 class BattleEngine {
   /**
@@ -32,7 +33,7 @@ class BattleEngine {
 
     for (let round = 1; round <= MAX_TURNS; round++) {
       // Agent 1 turn
-      const moves1 = this.pickActions(board, this.agent1.agent_id);
+      const moves1 = await this.getActions(board, this.agent1, round);
       this.applyValidated(board, this.agent1.agent_id, moves1, round);
       await storage.storeRoundActions(
         this.pool, this.matchId, this.agent1.agent_id, 'p1', round, moves1
@@ -45,7 +46,7 @@ class BattleEngine {
       }
 
       // Agent 2 turn
-      const moves2 = this.pickActions(board, this.agent2.agent_id);
+      const moves2 = await this.getActions(board, this.agent2, round);
       this.applyValidated(board, this.agent2.agent_id, moves2, round);
       await storage.storeRoundActions(
         this.pool, this.matchId, this.agent2.agent_id, 'p2', round, moves2
@@ -75,7 +76,24 @@ class BattleEngine {
     return this.finish(board, finalResult, MAX_TURNS);
   }
 
-  // ── Action selection (hardcoded greedy strategy for testing) ──────────────
+  // ── Action dispatch ─────────────────────────────────────────────────────────
+
+  /**
+   * Get actions for an agent: execute code if code_path is set, else use builtin strategy.
+   */
+  async getActions(board, agent, round) {
+    if (agent.code_path) {
+      try {
+        return await executeAgent(agent, board, round);
+      } catch (err) {
+        console.error(`${this.tag} Agent ${agent.display_name} execution failed: ${err.message}, using fallback`);
+        return this.pickActions(board, agent.agent_id);
+      }
+    }
+    return this.pickActions(board, agent.agent_id);
+  }
+
+  // ── Builtin greedy strategy (fallback) ─────────────────────────────────────
 
   /**
    * Generate actions for an agent using a simple greedy strategy:
