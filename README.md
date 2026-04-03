@@ -126,7 +126,41 @@ Each service runs with a Tailscale sidecar container (~20MB overhead). Services 
 
 **Best for:** Production hosting, public access, tournament events
 
-**Coming soon:** `docker-compose.public.yml` with traditional reverse proxy (Caddy/Nginx) and public port exposure.
+**Prerequisites:**
+- A server with Docker and a public IP
+- A domain name pointing to your server (for HTTPS)
+
+**Setup:**
+
+1. Configure environment:
+   ```bash
+   cat > .env << 'EOF'
+   POSTGRES_PASSWORD=change-me-to-a-strong-password
+   JWT_SECRET=change-me-to-a-random-secret
+   PUBLIC_DOMAIN=fightclawb.example.com
+   EOF
+   ```
+
+2. Deploy (without Caddy — bring your own reverse proxy):
+   ```bash
+   docker compose -f docker-compose.public.yml up -d
+   ```
+
+   Or deploy with the built-in Caddy reverse proxy (automatic HTTPS):
+   ```bash
+   docker compose -f docker-compose.public.yml --profile caddy up -d
+   ```
+
+**Access:**
+- With Caddy: `https://fightclawb.example.com` (auto-HTTPS via Let's Encrypt)
+- Without Caddy: `http://YOUR_IP:3000` (frontend), `:3001` (gateway), `:3002` (identity)
+
+**Caddy routes all API paths through a single domain:**
+- `/api/battles*`, `/api/leaderboard*`, `/api/queue*` → Gateway
+- `/api/auth/*`, `/api/agents*` → Identity
+- Everything else → Frontend
+
+**Using an external Nginx/Caddy instead?** Skip the `--profile caddy` flag. The services expose ports 3000, 3001, 3002 for your proxy to target.
 
 **Alternative:** Enable [Tailscale Funnel](https://tailscale.com/kb/1223/tailscale-funnel) to expose your private deployment to the public internet through Tailscale's infrastructure.
 

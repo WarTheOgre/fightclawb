@@ -1,0 +1,36 @@
+# FightClawb public reverse proxy
+# Automatic HTTPS via Let's Encrypt
+#
+# Usage:
+#   PUBLIC_DOMAIN=fightclawb.example.com docker compose -f docker-compose.public.yml --profile caddy up -d
+
+{$PUBLIC_DOMAIN} {
+	# Frontend — default route
+	reverse_proxy frontend:3000
+
+	# Gateway API
+	handle_path /api/battles* {
+		reverse_proxy arena-gateway:3002
+	}
+	handle_path /api/leaderboard* {
+		reverse_proxy arena-gateway:3002
+	}
+	handle_path /api/queue* {
+		reverse_proxy arena-gateway:3002
+	}
+
+	# Identity API
+	handle_path /api/auth/* {
+		reverse_proxy arena-identity:3001
+	}
+	handle_path /api/agents* {
+		reverse_proxy arena-identity:3001
+	}
+
+	# Security headers
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}
