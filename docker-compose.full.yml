@@ -1,6 +1,86 @@
 version: '3.8'
 
 services:
+  # ── Infrastructure ───────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: fightclawb-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: fightclawb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: fightclawb-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Tailscale sidecars ───────────────────────────────────────────────────────
+
+  ts-arena-gateway:
+    image: tailscale/tailscale:latest
+    container_name: fightclawb-ts-gateway
+    hostname: fightclawb-gateway
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_OAUTH_CLIENT}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_EXTRA_ARGS=--advertise-tags=tag:fightclawb
+      - TS_SERVE_CONFIG=/config/serve.json
+    volumes:
+      - ts-gateway-state:/var/lib/tailscale
+      - ./tailscale-config/gateway-serve.json:/config/serve.json:ro
+    cap_add: [net_admin, sys_module]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    restart: unless-stopped
+
+  ts-arena-identity:
+    image: tailscale/tailscale:latest
+    container_name: fightclawb-ts-identity
+    hostname: fightclawb-identity
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_OAUTH_CLIENT}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_EXTRA_ARGS=--advertise-tags=tag:fightclawb
+      - TS_SERVE_CONFIG=/config/serve.json
+    volumes:
+      - ts-identity-state:/var/lib/tailscale
+      - ./tailscale-config/identity-serve.json:/config/serve.json:ro
+    cap_add: [net_admin, sys_module]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    restart: unless-stopped
+
+  ts-frontend:
+    image: tailscale/tailscale:latest
+    container_name: fightclawb-ts-frontend
+    hostname: fightclawb-frontend
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_OAUTH_CLIENT}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_EXTRA_ARGS=--advertise-tags=tag:fightclawb
+      - TS_SERVE_CONFIG=/config/serve.json
+    volumes:
+      - ts-frontend-state:/var/lib/tailscale
+      - ./tailscale-config/frontend-serve.json:/config/serve.json:ro
+    cap_add: [net_admin, sys_module]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    restart: unless-stopped
+
+  # ── Application services ─────────────────────────────────────────────────────
+
   arena-identity:
     build:
       context: .
@@ -9,13 +89,18 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3001
-      - DATABASE_URL=postgresql://postgres:password@172.17.0.1:5432/fightclawb
-      - REDIS_URL=redis://172.17.0.1:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/fightclawb
+      - REDIS_URL=redis://redis:6379
       - JWT_SECRET=dev-secret-change-in-production
-    ports:
-      - "3002:3001"
-    network_mode: bridge
+    network_mode: service:ts-arena-identity
     restart: unless-stopped
+    depends_on:
+      ts-arena-identity:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   arena-gateway:
     build:
@@ -25,26 +110,36 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3002
-      - DATABASE_URL=postgresql://postgres:password@172.17.0.1:5432/fightclawb
-      - REDIS_URL=redis://172.17.0.1:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/fightclawb
+      - REDIS_URL=redis://redis:6379
       - JWT_SECRET=dev-secret-change-in-production
-      - IDENTITY_SERVICE_URL=http://172.17.0.1:3002
-    ports:
-      - "3001:3002"
-    network_mode: bridge
+      - IDENTITY_SERVICE_URL=http://fightclawb-identity:3001
+    network_mode: service:ts-arena-gateway
     restart: unless-stopped
     depends_on:
-      - arena-identity
+      ts-arena-gateway:
+        condition: service_started
+      arena-identity:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.static
+      dockerfile: Dockerfile
     container_name: fightclawb-frontend
-    ports:
-      - "3000:3000"
-    network_mode: bridge
+    network_mode: service:ts-frontend
     restart: unless-stopped
     depends_on:
+      - ts-frontend
       - arena-gateway
       - arena-identity
+
+volumes:
+  postgres_data:
+  ts-gateway-state:
+  ts-identity-state:
+  ts-frontend-state:

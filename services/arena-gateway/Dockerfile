@@ -5,8 +5,8 @@
 FROM node:22-alpine AS deps
 
 WORKDIR /build
-COPY arena-gateway/package*.json ./
-RUN npm ci --omit=dev --ignore-scripts
+COPY services/arena-gateway/package*.json ./
+RUN npm install --omit=dev --ignore-scripts
 
 # ── Stage 2: production ───────────────────────────────────────────────────────
 FROM node:22-alpine AS production
@@ -24,8 +24,8 @@ RUN addgroup -g 1001 -S arena && \
 WORKDIR /app
 
 COPY --from=deps --chown=arena:arena /build/node_modules ./node_modules
-COPY --chown=arena:arena arena-gateway/src ./src
-COPY --chown=arena:arena arena-gateway/package.json ./
+COPY --chown=arena:arena services/arena-gateway/src ./src
+COPY --chown=arena:arena services/arena-gateway/package.json ./
 
 ENV BUILD_SHA=${BUILD_SHA}
 ENV BUILD_TIME=${BUILD_TIME}
@@ -40,4 +40,4 @@ EXPOSE 3002
 HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://localhost:3002/health || exit 1
 
-CMD ["node", "src/app.js"]
+CMD ["node", "src/index.js"]
