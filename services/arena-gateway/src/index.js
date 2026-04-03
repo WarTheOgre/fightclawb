@@ -10,6 +10,10 @@ require('dotenv').config();
 const { healthCheck } = require('./database');
 const leaderboardRouter = require('./routes/leaderboard');
 const battlesRouter     = require('./routes/battles');
+const queueRouter = require('./routes/queue');
+
+// Start matchmaker
+require('./matchmaker');
 
 const app = express();
 
@@ -44,6 +48,7 @@ app.get('/health', async (_req, res) => {
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/leaderboard', leaderboardRouter);
 app.use('/api/battles',     battlesRouter);
+app.use('/api/queue', queueRouter);
 
 // Root
 app.get('/', (_req, res) => {

@@ -188,9 +188,13 @@ DECLARE
     v_entry_hash TEXT;
     v_row        match_log;
 BEGIN
-    SELECT COALESCE(MAX(seq) + 1, 0), MAX(entry_hash)
-      INTO v_seq, v_prev_hash
+    SELECT COALESCE(MAX(seq) + 1, 0)
+      INTO v_seq
       FROM match_log WHERE match_id = p_match_id;
+
+    SELECT entry_hash INTO v_prev_hash
+      FROM match_log WHERE match_id = p_match_id
+      ORDER BY seq DESC LIMIT 1;
 
     v_entry_hash := encode(
         digest(COALESCE(v_prev_hash, '') || p_payload::TEXT, 'sha256'), 'hex');
