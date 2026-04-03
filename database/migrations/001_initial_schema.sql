@@ -94,7 +94,11 @@ CREATE INDEX IF NOT EXISTS queue_tier_mode_idx
 -- Matches
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE TYPE IF NOT EXISTS match_status AS ENUM ('lobby','active','finished','aborted');
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'match_status') THEN
+    CREATE TYPE match_status AS ENUM ('lobby','active','finished','aborted');
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS matches (
     match_id     UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -202,7 +206,11 @@ END; $$;
 -- Sandbox jobs (Tier 1 container tracking)
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE TYPE IF NOT EXISTS job_status AS ENUM ('queued','running','done','error','killed');
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'job_status') THEN
+    CREATE TYPE job_status AS ENUM ('queued','running','done','error','killed');
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS sandbox_jobs (
     job_id       UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),

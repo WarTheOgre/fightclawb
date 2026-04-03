@@ -3,15 +3,14 @@
  * scripts/migrate.js — Database migration runner
  *
  * Usage:
- *   node scripts/migrate.js            # apply all pending migrations
- *   node scripts/migrate.js --status   # show applied/pending state
- *   node scripts/migrate.js --rollback # not implemented (see note)
+ *   node database/migrate.js              # apply all pending migrations
+ *   node database/migrate.js --status    # show applied/pending state
+ *   node database/migrate.js --rollback  # remove last applied migration & drop its objects
+ *   node database/migrate.js --reset     # drop all tables and re-run all migrations
  *
- * Migration files live in migrations/NNN_description.sql
+ * Migration files live in database/migrations/NNN_description.sql
+ * Rollback files live alongside as NNN_description.rollback.sql
  * Applied versions tracked in the schema_migrations table.
- *
- * Note: Destructive rollbacks are intentionally not automated.
- * Write a new forward migration to undo changes (safer in production).
  */
 
 import 'dotenv/config';
@@ -21,7 +20,7 @@ import { fileURLToPath } from 'url';
 import pg from 'pg';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS_DIR = join(__dirname, '..', 'migrations');
+const MIGRATIONS_DIR = join(__dirname, 'migrations');
 
 const { Client } = pg;
 
@@ -125,12 +124,86 @@ async function showStatus() {
   }
 }
 
+// ── Rollback ─────────────────────────────────────────────────────────────────
+
+async function rollbackLast() {
+  const client = await getClient();
+  try {
+    await ensureMigrationsTable(client);
+    const applied = await getApplied(client);
+
+    if (applied.size === 0) {
+      console.log('Nothing to roll back — no migrations applied.');
+      return;
+    }
+
+    const lastVersion = [...applied].sort().pop();
+    const rollbackFile = join(MIGRATIONS_DIR, `${lastVersion}.rollback.sql`);
+
+    let sql;
+    try {
+      sql = await readFile(rollbackFile, 'utf8');
+    } catch {
+      console.error(`Rollback file not found: ${rollbackFile}`);
+      console.error('Create it with the SQL needed to undo this migration.');
+      process.exit(1);
+    }
+
+    console.log(`Rolling back ${lastVersion}…`);
+    await client.query('BEGIN');
+    try {
+      await client.query(sql);
+      await client.query('DELETE FROM schema_migrations WHERE version = $1', [lastVersion]);
+      await client.query('COMMIT');
+      console.log(`  ✓ Rolled back`);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error(`  ✗ Failed: ${err.message}`);
+      process.exit(1);
+    }
+  } finally {
+    await client.end();
+  }
+}
+
+// ── Reset ────────────────────────────────────────────────────────────────────
+
+async function resetAll() {
+  const client = await getClient();
+  try {
+    console.log('Dropping all tables and views…\n');
+    await client.query(`
+      DROP MATERIALIZED VIEW IF EXISTS leaderboard CASCADE;
+      DROP TABLE IF EXISTS
+        match_log, round_actions, board_snapshots,
+        match_participants, sandbox_jobs, queue_entries,
+        matches, auth_nonces, agents, schema_migrations
+      CASCADE;
+      DROP TYPE IF EXISTS match_status CASCADE;
+      DROP TYPE IF EXISTS job_status CASCADE;
+      DROP FUNCTION IF EXISTS touch_updated_at CASCADE;
+      DROP FUNCTION IF EXISTS consume_nonce CASCADE;
+      DROP FUNCTION IF EXISTS append_log_entry CASCADE;
+    `);
+    console.log('  ✓ Dropped\n');
+  } finally {
+    await client.end();
+  }
+
+  // Re-run all migrations with a fresh connection
+  await runMigrations();
+}
+
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 
 if (args.includes('--status')) {
   await showStatus();
+} else if (args.includes('--rollback')) {
+  await rollbackLast();
+} else if (args.includes('--reset')) {
+  await resetAll();
 } else {
   await runMigrations();
 }
