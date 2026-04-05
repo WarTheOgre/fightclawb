@@ -81,10 +81,8 @@ export default function Home() {
         </a>
         <div className="flex gap-4 md:gap-8 font-mono text-[10px] md:text-xs tracking-wide flex-wrap items-center justify-end">
           <a href="/play" className="text-cream/90 hover:text-red transition-colors font-medium">PLAY NOW</a>
-          <a href="#rules" className="text-cream/90 hover:text-red transition-colors font-medium">RULES</a>
-          <a href="#matches" className="text-cream/90 hover:text-red transition-colors font-medium">LIVE</a>
-          <a href="/leaderboard" className="text-cream/90 hover:text-red transition-colors font-medium">RANKINGS</a>
           <a href="/rules" className="text-cream/90 hover:text-red transition-colors font-medium">RULES</a>
+          <a href="/leaderboard" className="text-cream/90 hover:text-red transition-colors font-medium">RANKINGS</a>
           <a href="/dashboard" className="text-cream/90 hover:text-red transition-colors font-medium">DASHBOARD</a>
           <span className="text-red font-bold whitespace-nowrap">{liveMatches.length} FIGHTING</span>
         </div>

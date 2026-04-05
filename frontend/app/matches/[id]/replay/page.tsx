@@ -1,10 +1,110 @@
 'use client'
 
-import { use, useState, useEffect, useCallback, useRef } from 'react'
+import { use, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { getBattle, type BattleDetail, type BattleLogEntry } from '../../../../lib/api'
 
 const SPEEDS = [0.25, 0.5, 1, 2, 5, 10]
+const BOARD_SIZE = 12
+const TOTAL_CELLS = BOARD_SIZE * BOARD_SIZE
+
+type CellOwner = 0 | 1 | 2 // 0=empty, 1=p1, 2=p2
+
+// Deterministic pseudo-random number generator (mulberry32)
+function mulberry32(seed: number) {
+  return function () {
+    let t = (seed += 0x6d2b79f5)
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// Build a grid that matches the target scores using deterministic expansion from corners
+function buildGrid(targetP1: number, targetP2: number, matchId: string): CellOwner[][] {
+  const grid: CellOwner[][] = Array.from({ length: BOARD_SIZE }, () =>
+    Array(BOARD_SIZE).fill(0)
+  )
+
+  if (targetP1 === 0 && targetP2 === 0) return grid
+
+  // Seed RNG from matchId for deterministic results
+  let seed = 0
+  for (let i = 0; i < matchId.length; i++) {
+    seed = ((seed << 5) - seed + matchId.charCodeAt(i)) | 0
+  }
+  const rng = mulberry32(seed)
+
+  // P1 starts top-left area, P2 starts bottom-right area
+  const p1Start = [0, 0]
+  const p2Start = [BOARD_SIZE - 1, BOARD_SIZE - 1]
+
+  // BFS-style expansion: place cells outward from starting corners
+  function expand(owner: 1 | 2, target: number, startR: number, startC: number) {
+    if (target <= 0) return
+    const placed: [number, number][] = []
+    const visited = new Set<string>()
+    const frontier: [number, number][] = [[startR, startC]]
+    visited.add(`${startR},${startC}`)
+
+    while (placed.length < target && frontier.length > 0) {
+      // Pick from frontier (with some randomness for organic look)
+      const idx = Math.floor(rng() * Math.min(frontier.length, 3))
+      const [r, c] = frontier.splice(idx, 1)[0]
+
+      if (grid[r][c] === 0) {
+        grid[r][c] = owner
+        placed.push([r, c])
+      }
+
+      // Add neighbors to frontier
+      const dirs = [[0, 1], [1, 0], [0, -1], [-1, 0]]
+      // Shuffle directions for organic spread
+      for (let i = dirs.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [dirs[i], dirs[j]] = [dirs[j], dirs[i]]
+      }
+      for (const [dr, dc] of dirs) {
+        const nr = r + dr
+        const nc = c + dc
+        const key = `${nr},${nc}`
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && !visited.has(key)) {
+          visited.add(key)
+          frontier.push([nr, nc])
+        }
+      }
+    }
+
+    // If BFS couldn't place enough (frontier ran out), fill remaining randomly
+    if (placed.length < target) {
+      const empties: [number, number][] = []
+      for (let r = 0; r < BOARD_SIZE; r++)
+        for (let c = 0; c < BOARD_SIZE; c++)
+          if (grid[r][c] === 0) empties.push([r, c])
+      // Shuffle
+      for (let i = empties.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [empties[i], empties[j]] = [empties[j], empties[i]]
+      }
+      for (let i = 0; placed.length < target && i < empties.length; i++) {
+        const [r, c] = empties[i]
+        if (grid[r][c] === 0) {
+          grid[r][c] = owner
+          placed.push([r, c])
+        }
+      }
+    }
+  }
+
+  // Clamp scores to board capacity
+  const s1 = Math.min(targetP1, TOTAL_CELLS)
+  const s2 = Math.min(targetP2, TOTAL_CELLS - s1)
+
+  expand(1, s1, p1Start[0], p1Start[1])
+  expand(2, s2, p2Start[0], p2Start[1])
+
+  return grid
+}
 
 export default function ReplayTheater({
   params,
@@ -47,8 +147,6 @@ export default function ReplayTheater({
   const p1 = matchData?.participants.find(p => p.slot === 'p1')
   const p2 = matchData?.participants.find(p => p.slot === 'p2')
   const entries = matchData?.log_entries ?? []
-  const roundEntries = entries.filter(e => e.event_type === 'ROUND_RESOLVED')
-  const totalRounds = roundEntries.length
   const speed = SPEEDS[speedIndex]
 
   // Compute scores for a given playback index
@@ -113,6 +211,28 @@ export default function ReplayTheater({
       setCommentary(generateCommentary(entry, s1, s2, p1Score, p2Score))
     }
   }, [currentIndex, matchData, entries, computeScores, generateCommentary, p1Score, p2Score])
+
+  // Build grid from current scores - memoized to avoid recalc on unrelated state changes
+  const grid = useMemo(() => {
+    return buildGrid(p1Score, p2Score, id)
+  }, [p1Score, p2Score, id])
+
+  // Track which cells changed for flash effect
+  const prevGridRef = useRef<CellOwner[][] | null>(null)
+  const changedCells = useMemo(() => {
+    const changed = new Set<string>()
+    if (prevGridRef.current) {
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          if (prevGridRef.current[r][c] !== grid[r][c]) {
+            changed.add(`${r},${c}`)
+          }
+        }
+      }
+    }
+    prevGridRef.current = grid.map(row => [...row])
+    return changed
+  }, [grid])
 
   // Playback timer
   useEffect(() => {
@@ -190,7 +310,7 @@ export default function ReplayTheater({
     ? matchData?.current_round ?? 0
     : 0
 
-  const totalCells = matchData ? matchData.board_size * matchData.board_size : 144
+  const totalCells = matchData ? matchData.board_size * matchData.board_size : TOTAL_CELLS
   const p1Pct = totalCells > 0 ? Math.round((p1Score / totalCells) * 100) : 0
   const p2Pct = totalCells > 0 ? Math.round((p2Score / totalCells) * 100) : 0
   const isFinished = currentIndex >= entries.length - 1 && entries[entries.length - 1]?.event_type === 'MATCH_ENDED'
@@ -287,6 +407,51 @@ export default function ReplayTheater({
                 <div className="font-oswald text-lg md:text-2xl text-cream truncate">{p2.name}</div>
                 <div className="font-mono text-[10px] text-chalk/50">
                   ELO {p2.elo_before} → {p2.elo_after ?? '—'}
+                </div>
+              </div>
+            </div>
+
+            {/* Visual Board Grid */}
+            <div className="mb-6">
+              <div className="max-w-[400px] md:max-w-[540px] mx-auto">
+                <div className="grid grid-cols-12 gap-[2px]">
+                  {grid.map((row, r) =>
+                    row.map((cell, c) => {
+                      const key = `${r},${c}`
+                      const isChanged = changedCells.has(key)
+                      // Home base corners
+                      const isP1Home = r <= 1 && c <= 1
+                      const isP2Home = r >= BOARD_SIZE - 2 && c >= BOARD_SIZE - 2
+                      return (
+                        <div
+                          key={key}
+                          className={`
+                            aspect-square rounded-sm transition-all duration-300
+                            ${cell === 1
+                              ? `bg-red-900/80 border border-red-700/60 ${isChanged ? 'animate-pulse' : ''}`
+                              : cell === 2
+                              ? `bg-blue-900/80 border border-blue-700/60 ${isChanged ? 'animate-pulse' : ''}`
+                              : `bg-black/40 border border-rust/15`
+                            }
+                            ${cell === 0 && isP1Home ? 'border-red-900/40' : ''}
+                            ${cell === 0 && isP2Home ? 'border-blue-900/40' : ''}
+                          `}
+                        />
+                      )
+                    })
+                  )}
+                </div>
+                {/* Grid legend */}
+                <div className="flex justify-between mt-2 font-mono text-[10px] text-chalk/30">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 bg-red-900/80 border border-red-700/60 rounded-sm" />
+                    <span className="text-red-400">{p1.name}</span>
+                  </div>
+                  <span className="text-chalk/20">{BOARD_SIZE}×{BOARD_SIZE} GRID</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-blue-400">{p2.name}</span>
+                    <div className="w-2.5 h-2.5 bg-blue-900/80 border border-blue-700/60 rounded-sm" />
+                  </div>
                 </div>
               </div>
             </div>
