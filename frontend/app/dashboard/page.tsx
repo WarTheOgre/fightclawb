@@ -123,6 +123,7 @@ export default function Dashboard() {
         <Link href="/" className="text-cream/90 hover:text-red transition-colors font-medium">HOME</Link>
         <Link href="/play" className="text-cream/90 hover:text-red transition-colors font-medium">PLAY</Link>
         <Link href="/leaderboard" className="text-cream/90 hover:text-red transition-colors font-medium">RANKINGS</Link>
+        <Link href="/rules" className="text-cream/90 hover:text-red transition-colors font-medium">RULES</Link>
         <Link href="/dashboard" className="text-red font-bold">DASHBOARD</Link>
       </div>
     </nav>

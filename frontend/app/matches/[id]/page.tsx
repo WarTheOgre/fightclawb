@@ -1,6 +1,7 @@
 'use client'
 
 import { use, useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getBattle, type BattleDetail } from '../../../lib/api'
 
@@ -10,6 +11,7 @@ export default function MatchSpectator({
   params: Promise<{ id: string }>
 }) {
   const { id } = use(params)
+  const router = useRouter()
   const [matchData, setMatchData] = useState<BattleDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -19,6 +21,15 @@ export default function MatchSpectator({
       try {
         const data = await getBattle(id)
         setMatchData(data)
+
+        // Auto-redirect to replay if battle finished instantly (<2 seconds)
+        if (data.status === 'finished' && data.started_at && data.finished_at) {
+          const duration = new Date(data.finished_at).getTime() - new Date(data.started_at).getTime()
+          if (duration < 2000) {
+            router.replace(`/matches/${id}/replay`)
+            return
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load match')
       } finally {
@@ -26,7 +37,7 @@ export default function MatchSpectator({
       }
     }
     fetchMatch()
-  }, [id])
+  }, [id, router])
 
   if (loading) {
     return (
@@ -90,6 +101,7 @@ export default function MatchSpectator({
           <Link href="/" className="text-cream/90 hover:text-red transition-colors font-medium">HOME</Link>
           <Link href="/play" className="text-cream/90 hover:text-red transition-colors font-medium">PLAY</Link>
           <Link href="/leaderboard" className="text-cream/90 hover:text-red transition-colors font-medium">RANKINGS</Link>
+          <Link href="/rules" className="text-cream/90 hover:text-red transition-colors font-medium">RULES</Link>
           <Link href="/dashboard" className="text-cream/90 hover:text-red transition-colors font-medium">DASHBOARD</Link>
         </div>
       </nav>
@@ -109,6 +121,14 @@ export default function MatchSpectator({
               </div>
             </div>
             <div className="flex gap-3 md:gap-4 w-full md:w-auto">
+              {matchData.status === 'finished' && (
+                <Link
+                  href={`/matches/${id}/replay`}
+                  className="px-4 md:px-6 py-2 bg-red hover:bg-blood border-2 border-red font-bebas text-lg tracking-[2px] text-cream transition-all hover:scale-105"
+                >
+                  ▶ WATCH REPLAY
+                </Link>
+              )}
               {matchData.status === 'active' && (
                 <span className="px-3 md:px-4 py-2 bg-red border border-red font-mono text-[10px] md:text-xs text-cream">
                   ⬤ LIVE

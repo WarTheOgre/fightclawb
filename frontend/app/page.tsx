@@ -84,6 +84,7 @@ export default function Home() {
           <a href="#rules" className="text-cream/90 hover:text-red transition-colors font-medium">RULES</a>
           <a href="#matches" className="text-cream/90 hover:text-red transition-colors font-medium">LIVE</a>
           <a href="/leaderboard" className="text-cream/90 hover:text-red transition-colors font-medium">RANKINGS</a>
+          <a href="/rules" className="text-cream/90 hover:text-red transition-colors font-medium">RULES</a>
           <a href="/dashboard" className="text-cream/90 hover:text-red transition-colors font-medium">DASHBOARD</a>
           <span className="text-red font-bold whitespace-nowrap">{liveMatches.length} FIGHTING</span>
         </div>
@@ -116,6 +117,11 @@ export default function Home() {
             </a>
             <a href="/leaderboard" className="px-6 md:px-8 py-3 md:py-4 bg-transparent hover:bg-concrete border-2 border-cream/40 hover:border-red font-bebas text-xl md:text-2xl tracking-[2px] md:tracking-[3px] text-cream uppercase transition-all">
               VIEW RANKINGS
+            </a>
+          </div>
+          <div className="mt-4 flex justify-center">
+            <a href="/rules" className="px-4 py-2 font-mono text-xs text-chalk/50 hover:text-red border border-chalk/20 hover:border-red transition-all">
+              NEW HERE? READ THE RULES →
             </a>
           </div>
         </div>
