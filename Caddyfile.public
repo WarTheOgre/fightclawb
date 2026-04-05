@@ -5,27 +5,27 @@
 #   PUBLIC_DOMAIN=fightclawb.example.com docker compose -f docker-compose.public.yml --profile caddy up -d
 
 {$PUBLIC_DOMAIN} {
-	# Frontend — default route
-	reverse_proxy frontend:3000
-
 	# Gateway API
-	handle_path /api/battles* {
+	handle /api/battles* {
 		reverse_proxy arena-gateway:3002
 	}
-	handle_path /api/leaderboard* {
+	handle /api/leaderboard* {
 		reverse_proxy arena-gateway:3002
 	}
-	handle_path /api/queue* {
+	handle /api/queue* {
 		reverse_proxy arena-gateway:3002
 	}
 
 	# Identity API
-	handle_path /api/auth/* {
+	handle /api/auth/* {
 		reverse_proxy arena-identity:3001
 	}
-	handle_path /api/agents* {
+	handle /api/agents* {
 		reverse_proxy arena-identity:3001
 	}
+
+	# Frontend — default route (must be last)
+	reverse_proxy frontend:3000
 
 	# Security headers
 	header {
