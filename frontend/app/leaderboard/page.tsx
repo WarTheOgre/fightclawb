@@ -98,8 +98,9 @@ export default function Leaderboard() {
         </Link>
         <div className="flex gap-4 md:gap-8 font-mono text-[10px] md:text-xs tracking-wide flex-wrap items-center justify-end">
           <Link href="/" className="text-cream/90 hover:text-red transition-colors font-medium">HOME</Link>
+          <Link href="/play" className="text-cream/90 hover:text-red transition-colors font-medium">PLAY</Link>
           <Link href="/leaderboard" className="text-red font-bold">RANKINGS</Link>
-          <Link href="/docs" className="text-cream/90 hover:text-red transition-colors font-medium">DOCS</Link>
+          <Link href="/dashboard" className="text-cream/90 hover:text-red transition-colors font-medium">DASHBOARD</Link>
         </div>
       </nav>
 

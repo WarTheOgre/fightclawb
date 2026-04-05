@@ -2,9 +2,49 @@
 
 import { useEffect, useState } from 'react'
 
+interface Battle {
+  match_id: string
+  status: string
+  mode: string
+  tier: number
+  current_round: number
+  agent1: {
+    name: string
+    elo: number
+  }
+  agent2: {
+    name: string
+    elo: number
+  }
+}
+
 export default function Home() {
   const [glitching, setGlitching] = useState(false)
-  const [liveMatches, setLiveMatches] = useState(42)
+  const [liveMatches, setLiveMatches] = useState<Battle[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Fetch live matches
+  useEffect(() => {
+    const fetchMatches = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/battles')
+        if (response.ok) {
+          const data = await response.json()
+          const activeBattles = data.battles.filter((b: Battle) => b.status === 'active')
+          setLiveMatches(activeBattles)
+        }
+      } catch (err) {
+        console.error('Failed to fetch battles:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    fetchMatches()
+    // Refresh every 10 seconds
+    const interval = setInterval(fetchMatches, 10000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Glitch effect on hero
   useEffect(() => {
@@ -17,13 +57,20 @@ export default function Home() {
     return () => clearInterval(interval)
   }, [])
 
-  // Live match counter animation
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setLiveMatches(prev => prev + Math.floor(Math.random() * 3) - 1)
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [])
+  // Calculate mock territory (TODO: get from API when available)
+  const calculateTerritory = (battle: Battle) => {
+    // Simple mock based on current round
+    const baseP1 = 50 + (Math.random() * 40 - 20)
+    return Math.max(10, Math.min(90, baseP1))
+  }
+
+  const getStatus = (territory: number) => {
+    if (territory > 65) return 'P1 CRUSHING'
+    if (territory > 55) return 'P1 AHEAD'
+    if (territory > 45) return 'CLOSE'
+    if (territory > 35) return 'P2 AHEAD'
+    return 'P2 CRUSHING'
+  }
 
   return (
     <>
@@ -33,11 +80,12 @@ export default function Home() {
           FIGHT CLAW<span className="text-red inline-block animate-pulse" style={{marginLeft: "-2px"}}>B</span>
         </a>
         <div className="flex gap-4 md:gap-8 font-mono text-[10px] md:text-xs tracking-wide flex-wrap items-center justify-end">
+          <a href="/play" className="text-cream/90 hover:text-red transition-colors font-medium">PLAY NOW</a>
           <a href="#rules" className="text-cream/90 hover:text-red transition-colors font-medium">RULES</a>
           <a href="#matches" className="text-cream/90 hover:text-red transition-colors font-medium">LIVE</a>
           <a href="/leaderboard" className="text-cream/90 hover:text-red transition-colors font-medium">RANKINGS</a>
-          <a href="/docs" className="text-cream/90 hover:text-red transition-colors font-medium">DOCS</a>
-          <span className="text-red font-bold whitespace-nowrap">{liveMatches} FIGHTING</span>
+          <a href="/dashboard" className="text-cream/90 hover:text-red transition-colors font-medium">DASHBOARD</a>
+          <span className="text-red font-bold whitespace-nowrap">{liveMatches.length} FIGHTING</span>
         </div>
       </nav>
 
@@ -116,42 +164,50 @@ export default function Home() {
           <h2 className="font-bebas text-4xl md:text-6xl text-center mb-8 md:mb-12 text-cream tracking-[4px]">
             LIVE MATCHES
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-            {[
-              { id: 'a1b2', p1: 'RandomBot-Alpha', p2: 'GreedyBot-v1', round: 47, p1_territory: 62, status: 'P1 AHEAD' },
-              { id: 'c3d4', p1: 'LLMAgent-Mini', p2: 'GreedyBot-v2', round: 23, p1_territory: 51, status: 'CLOSE' },
-              { id: 'e5f6', p1: 'Durden_v2', p2: 'Tyler.ai', round: 89, p1_territory: 78, status: 'P1 CRUSHING' },
-            ].map((match, i) => (
-              <div key={i} className="border-2 border-rust/40 bg-dark p-4 md:p-6 hover:border-red transition-all hover:shadow-[0_0_20px_rgba(196,30,30,0.3)]">
-                <div className="flex justify-between items-center mb-3 md:mb-4">
-                  <span className="font-mono text-[10px] md:text-xs text-chalk/60">MATCH #{match.id}</span>
-                  <span className="font-mono text-[10px] md:text-xs text-red font-bold">{match.status}</span>
-                </div>
-                <div className="space-y-2 mb-3 md:mb-4">
-                  <div className="flex justify-between items-center">
-                    <span className="font-oswald text-sm md:text-base text-cream truncate pr-2">{match.p1}</span>
-                    <span className="font-mono text-xs text-red flex-shrink-0">P1</span>
+          
+          {loading ? (
+            <div className="text-center font-mono text-chalk/70">Loading matches...</div>
+          ) : liveMatches.length === 0 ? (
+            <div className="text-center font-mono text-chalk/70">No active matches right now. Check back soon!</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+              {liveMatches.slice(0, 9).map((match) => {
+                const p1Territory = calculateTerritory(match)
+                const status = getStatus(p1Territory)
+                
+                return (
+                  <div key={match.match_id} className="border-2 border-rust/40 bg-dark p-4 md:p-6 hover:border-red transition-all hover:shadow-[0_0_20px_rgba(196,30,30,0.3)]">
+                    <div className="flex justify-between items-center mb-3 md:mb-4">
+                      <span className="font-mono text-[10px] md:text-xs text-chalk/60">MATCH #{match.match_id.slice(0, 8)}</span>
+                      <span className="font-mono text-[10px] md:text-xs text-red font-bold">{status}</span>
+                    </div>
+                    <div className="space-y-2 mb-3 md:mb-4">
+                      <div className="flex justify-between items-center">
+                        <span className="font-oswald text-sm md:text-base text-cream truncate pr-2">{match.agent1.name}</span>
+                        <span className="font-mono text-xs text-red flex-shrink-0">P1</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-oswald text-sm md:text-base text-cream/70 truncate pr-2">{match.agent2.name}</span>
+                        <span className="font-mono text-xs text-chalk/50 flex-shrink-0">P2</span>
+                      </div>
+                    </div>
+                    <div className="border-t border-rust/30 pt-3 md:pt-4 space-y-2">
+                      <div className="flex justify-between font-mono text-[10px] md:text-xs text-chalk/60">
+                        <span>ROUND {match.current_round}/500</span>
+                        <span>TERRITORY: {Math.round(p1Territory)}%</span>
+                      </div>
+                      <div className="h-2 bg-black/50 rounded overflow-hidden">
+                        <div className="h-full bg-red transition-all" style={{ width: `${p1Territory}%` }}></div>
+                      </div>
+                    </div>
+                    <a href={`/matches/${match.match_id}`} className="block mt-3 md:mt-4 text-center py-2 border border-red/50 hover:bg-red hover:border-red font-mono text-xs text-cream uppercase transition-all">
+                      SPECTATE
+                    </a>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="font-oswald text-sm md:text-base text-cream/70 truncate pr-2">{match.p2}</span>
-                    <span className="font-mono text-xs text-chalk/50 flex-shrink-0">P2</span>
-                  </div>
-                </div>
-                <div className="border-t border-rust/30 pt-3 md:pt-4 space-y-2">
-                  <div className="flex justify-between font-mono text-[10px] md:text-xs text-chalk/60">
-                    <span>ROUND {match.round}/500</span>
-                    <span>TERRITORY: {match.p1_territory}%</span>
-                  </div>
-                  <div className="h-2 bg-black/50 rounded overflow-hidden">
-                    <div className="h-full bg-red transition-all" style={{ width: `${match.p1_territory}%` }}></div>
-                  </div>
-                </div>
-                <a href={`/matches/${match.id}`} className="block mt-3 md:mt-4 text-center py-2 border border-red/50 hover:bg-red hover:border-red font-mono text-xs text-cream uppercase transition-all">
-                  SPECTATE
-                </a>
-              </div>
-            ))}
-          </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </section>
 
