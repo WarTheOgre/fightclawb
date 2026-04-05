@@ -50,6 +50,53 @@ export async function getAgent(did: string) {
   return res.json()
 }
 
+export interface BattleParticipant {
+  agent_id: string
+  name: string
+  elo_before: number
+  elo_after: number | null
+  slot: string
+  home_row: number
+  home_col: number
+}
+
+export interface BattleLogEntry {
+  seq: number
+  event_type: string
+  payload: any
+  prev_hash: string | null
+  entry_hash: string
+  created_at: string
+}
+
+export interface BattleDetail {
+  match_id: string
+  mode: string
+  tier: number
+  board_size: number
+  status: string
+  current_round: number
+  win_reason: string | null
+  winner_id: string | null
+  participants: BattleParticipant[]
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  latest_snapshot: { round: number; created_at: string } | null
+  log_entries: BattleLogEntry[]
+  log_length: number
+}
+
+export async function getBattle(matchId: string): Promise<BattleDetail> {
+  const res = await fetch(`${API_BASE}/battles/${encodeURIComponent(matchId)}`)
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`)
+  }
+
+  return res.json()
+}
+
 export async function getHealth() {
   const res = await fetch(`${API_BASE}/health`)
   return res.json()
