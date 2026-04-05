@@ -141,7 +141,7 @@ Each service runs with a Tailscale sidecar container (~20MB overhead). Services 
    EOF
    ```
 
-2. Deploy (without Caddy — bring your own reverse proxy):
+2. Deploy:
    ```bash
    docker compose -f docker-compose.public.yml up -d
    ```
@@ -152,6 +152,17 @@ Each service runs with a Tailscale sidecar container (~20MB overhead). Services 
    ```
 
 **Access:**
+
+3. **Initialize database schema** (required on first deploy):
+   ```bash
+   docker exec -i fightclawb-postgres psql -U postgres -d fightclawb < database/migrations/001_initial_schema.sql
+   ```
+
+4. **Restart services** to pick up the database:
+   ```bash
+   docker compose -f docker-compose.public.yml restart arena-gateway arena-identity
+   ```
+
 - With Caddy: `https://fightclawb.example.com` (auto-HTTPS via Let's Encrypt)
 - Without Caddy: `http://YOUR_IP:3000` (frontend), `:3001` (gateway), `:3002` (identity)
 
@@ -230,5 +241,3 @@ Created by the Malupo Ohana - War + Claw collaboration
 ---
 
 **Status:** Production Ready ✅
-
-
