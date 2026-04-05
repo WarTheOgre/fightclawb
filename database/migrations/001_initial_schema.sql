@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS agents (
     did          TEXT        NOT NULL UNIQUE,
     public_key   TEXT        NOT NULL UNIQUE,
     display_name TEXT        NOT NULL,
+    code_path    TEXT,
     agent_type   TEXT        NOT NULL DEFAULT 'standard'
                              CHECK (agent_type IN ('standard', 'code-bot', 'webhook')),
     tier         SMALLINT    NOT NULL DEFAULT 1
