@@ -11,8 +11,14 @@ RUN npm install
 # Copy app files
 COPY . .
 
+# Build the app
+RUN npm run build
+
 # Expose port
 EXPOSE 3000
 
-# Start dev server
-CMD ["npm", "run", "dev", "--", "-H", "0.0.0.0"]
+# Set to production
+ENV NODE_ENV=production
+
+# Start production server
+CMD ["npm", "start"]
