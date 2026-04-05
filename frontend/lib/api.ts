@@ -234,6 +234,18 @@ export async function getAgentDetail(agentId: string): Promise<AgentDetail> {
   return res.json()
 }
 
+export async function getAgentByDid(did: string): Promise<AgentDetail> {
+  // Fetch agent list to find the agent_id for this DID
+  const res = await fetch(`${API_BASE}/agents?limit=100`)
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  const data = await res.json()
+  const agent = data.agents.find((a: any) => a.did === did)
+  if (!agent) throw new Error('Agent not found')
+
+  // Fetch full detail by agent_id
+  return getAgentDetail(agent.agent_id)
+}
+
 export async function getHealth() {
   const res = await fetch(`${API_BASE}/health`)
   return res.json()
