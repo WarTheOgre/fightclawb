@@ -7,6 +7,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const agentsRouter = require('./routes/agents');
+const credentialsRouter = require('./routes/credentials');
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.get('/health', (_req, res) => {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api', agentsRouter);
+app.use('/api/credentials', credentialsRouter);
 
 // Root
 app.get('/', (_req, res) => {
@@ -40,6 +42,8 @@ app.get('/', (_req, res) => {
       register: 'POST /api/auth/register',
       agent:    'GET  /api/agents/:agentId',
       agents:   'GET  /api/agents',
+      issueVC:  'POST /api/credentials/issue',
+      verifyVC: 'POST /api/credentials/verify',
     },
   });
 });

@@ -36,6 +36,14 @@ Thumbs.db
 # Docker
 .dockerignore
 
+# Cryptographic Keys (NEVER commit private keys)
+backend/keys/
+*.pem
+
+# Python
+venv/
+__pycache__/
+
 # Backups
 *.backup*
 .env.local
