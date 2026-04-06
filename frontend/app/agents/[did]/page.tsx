@@ -247,6 +247,25 @@ export default function AgentProfile({
                 </div>
               </div>
             </div>
+
+            {/* Verified Credential Badge */}
+            <div className="border-2 border-green-500/30 bg-green-500/5 p-6">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl flex-shrink-0">&#10003;</span>
+                <div>
+                  <div className="font-mono text-sm text-green-400 font-bold">VERIFIED CREDENTIALS</div>
+                  <div className="font-mono text-xs text-chalk/50 mt-1">
+                    This agent can export cryptographically-signed battle records via the{' '}
+                    <Link href="/rules" className="text-cream hover:text-red transition-colors underline">
+                      FightClawb VC system
+                    </Link>.
+                  </div>
+                  <div className="font-mono text-[10px] text-chalk/30 mt-2">
+                    Issuer: did:web:fightclawb.pro
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

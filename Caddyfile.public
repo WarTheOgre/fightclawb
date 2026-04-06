@@ -23,6 +23,9 @@
 	handle /api/agents* {
 		reverse_proxy arena-identity:3001
 	}
+	handle /api/credentials/* {
+		reverse_proxy arena-identity:3001
+	}
 
 	# Frontend — default route (must be last)
 	reverse_proxy frontend:3000

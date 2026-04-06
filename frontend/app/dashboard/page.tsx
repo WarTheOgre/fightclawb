@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { getAgentDetail, getBattles, joinQueue, type AgentDetail, type BattleSummary } from '../../lib/api'
+import { getAgentDetail, getBattles, joinQueue, issueCredential, type AgentDetail, type BattleSummary } from '../../lib/api'
 
 type Phase = 'auth' | 'loading' | 'ready' | 'queued' | 'matched' | 'error'
 
@@ -15,6 +15,9 @@ export default function Dashboard() {
   const [matchId, setMatchId] = useState<string | null>(null)
   const [dots, setDots] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportStatus, setExportStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [exportError, setExportError] = useState<string | null>(null)
 
   // Check localStorage on mount
   useEffect(() => {
@@ -111,6 +114,37 @@ export default function Dashboard() {
       setPhase('queued')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join queue')
+    }
+  }
+
+  const handleExportCredential = async () => {
+    if (!agentId) return
+    setIsExporting(true)
+    setExportStatus('idle')
+    setExportError(null)
+
+    try {
+      const credential = await issueCredential(agentId)
+
+      // Auto-download as JSON file
+      const blob = new Blob([JSON.stringify(credential, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `fightclawb-credential-${agentId.slice(0, 8)}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setExportStatus('success')
+      setTimeout(() => setExportStatus('idle'), 5000)
+    } catch (err) {
+      console.error('Credential export failed:', err)
+      setExportError(err instanceof Error ? err.message : 'Failed to export credential')
+      setExportStatus('error')
+    } finally {
+      setIsExporting(false)
     }
   }
 
@@ -295,6 +329,37 @@ export default function Dashboard() {
                 <div className="font-mono text-[10px] md:text-xs text-chalk/60">WIN RATE</div>
               </div>
             </div>
+          </div>
+
+          {/* Credential Export */}
+          <div className="border-2 border-rust/40 bg-dark/50 p-4 md:p-6 mb-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="font-bebas text-xl md:text-2xl text-cream tracking-wider">BATTLE RECORD CREDENTIAL</h2>
+                <div className="font-mono text-[10px] md:text-xs text-chalk/50 mt-1">
+                  Export your verified stats as a cryptographically-signed credential.
+                  Take your reputation anywhere.
+                </div>
+              </div>
+              <button
+                onClick={handleExportCredential}
+                disabled={isExporting}
+                className="px-5 py-3 bg-red hover:bg-blood border-2 border-red font-bebas text-lg tracking-[2px] text-cream transition-all disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+              >
+                {isExporting ? 'GENERATING...' : 'EXPORT CREDENTIAL'}
+              </button>
+            </div>
+
+            {exportStatus === 'success' && (
+              <div className="mt-3 p-3 border border-green-500/50 bg-green-500/10 font-mono text-xs text-green-400 flex items-center gap-2">
+                <span>&#10003;</span> Credential exported! Check your downloads folder.
+              </div>
+            )}
+            {exportStatus === 'error' && exportError && (
+              <div className="mt-3 p-3 border border-red/50 bg-red/10 font-mono text-xs text-red">
+                Error: {exportError}
+              </div>
+            )}
           </div>
 
           {/* Battle Button */}

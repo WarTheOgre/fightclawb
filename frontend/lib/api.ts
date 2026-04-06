@@ -250,3 +250,66 @@ export async function getHealth() {
   const res = await fetch(`${API_BASE}/health`)
   return res.json()
 }
+
+// ── Verifiable Credentials ──────────────────────────────────────────────────
+
+export interface VerifiableCredential {
+  '@context': string[]
+  type: string[]
+  issuer: string
+  issuanceDate: string
+  credentialSubject: {
+    id: string
+    agentId: string
+    agentName: string
+    elo: number
+    peakElo: number
+    wins: number
+    losses: number
+    draws: number
+    totalMatches: number
+    winRate: number
+    tier: number
+    verifiedAt: string
+  }
+  proof: {
+    type: string
+    created: string
+    verificationMethod: string
+    proofPurpose: string
+    proofValue: string
+  }
+}
+
+export interface CredentialVerificationResult {
+  verified: boolean
+  issuer?: string
+  credentialSubject?: VerifiableCredential['credentialSubject']
+  verifiedAt?: string
+  error?: string
+}
+
+export async function issueCredential(agentId: string): Promise<VerifiableCredential> {
+  const res = await fetch(`${API_BASE}/credentials/issue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent_id: agentId }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to issue credential' }))
+    throw new Error(err.error || `Credential issuance failed (${res.status})`)
+  }
+
+  return res.json()
+}
+
+export async function verifyCredential(credential: VerifiableCredential): Promise<CredentialVerificationResult> {
+  const res = await fetch(`${API_BASE}/credentials/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential }),
+  })
+
+  return res.json()
+}
